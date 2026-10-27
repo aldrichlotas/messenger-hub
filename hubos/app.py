@@ -19,7 +19,7 @@ import config_ui
 import hub
 
 from . import bot as botmod
-from . import process, settings
+from . import process, settings, threads
 from .store import Store
 
 PORT = 8765
@@ -83,7 +83,7 @@ def self_chat_candidates(cfg: dict) -> list:
 
 def app_state() -> dict:
     cfg = hub.load_config()
-    d = process.dashboard(STORE)
+    d = process.dashboard(STORE, cfg=cfg)
     return {
         "dash": d,
         "me": cfg.get("me"),
@@ -140,6 +140,8 @@ def save_settings(body: dict) -> None:
         cur["ping_cap"] = max(0, min(50, int(body["ping_cap"])))
     if body.get("detail") in ("short", "minimal"):
         cur["detail"] = body["detail"]
+    if body.get("summaries") in ("off", "lite"):
+        cur["summaries"] = body["summaries"]
     if "process_minutes" in body:
         cur["process_minutes"] = max(1, min(120, int(body["process_minutes"])))
     for b in cur["briefs"].values():
@@ -147,6 +149,20 @@ def save_settings(body: dict) -> None:
     dt.time.fromisoformat(cur["quiet"]["start"]), dt.time.fromisoformat(cur["quiet"]["end"])
     cfg["settings"] = cur
     hub.save_config(cfg)
+
+
+def find_cards(cfg: dict, key=None) -> list:
+    cs = threads.cards(STORE, process.channels(cfg), process.profile(cfg))
+    return [c for c in cs if key is None or c["key"] == key]
+
+
+def chat_url(cfg: dict, slug: str):
+    for org in cfg.get("orgs", {}).values():
+        for c in org.get("chats", []):
+            if c.get("slug") == slug and c.get("thread"):
+                t = c["thread"]
+                return t if t.startswith("http") else f"https://www.facebook.com/messages/t/{t}"
+    return None
 
 
 def run_sync() -> None:
@@ -191,11 +207,22 @@ class Handler(config_ui.Handler):
                 if fields.get("due"):
                     dt.datetime.fromisoformat(fields["due"])
                 STORE.update_entry(int(body["id"]), **fields)
-            elif action == "mention-read":
-                if body.get("all"):
-                    STORE.run("UPDATE mention SET read = 1")
-                else:
-                    STORE.run("UPDATE mention SET read = ? WHERE id = ?", (0 if body.get("unread") else 1, int(body["id"])))
+            elif action == "card-read":
+                for c in find_cards(cfg, None if body.get("all") else str(body["key"])):
+                    threads.mark_read(STORE, c["key"], None if body.get("unread") else c["last_ping"], c["ping_items"])
+            elif action == "summarise":
+                card = next(iter(find_cards(cfg, str(body["key"]))), None)
+                if not card:
+                    raise ValueError("that conversation is gone")
+                threads.summarise(STORE, card, cfg.get("me") or "me")
+            elif action == "open-chat":
+                url = chat_url(cfg, str(body.get("channel") or ""))
+                if not url:
+                    raise ValueError("no Messenger link for this chat")
+                threads.log_event(STORE, "open-source", str(body.get("key") or body.get("channel")))
+                import webbrowser
+
+                webbrowser.open(url)
             elif action == "profile":
                 save_profile(body)
                 process.rescan(STORE, hub.load_config())
@@ -235,8 +262,12 @@ class Handler(config_ui.Handler):
 def processor_forever():
     while not _stop.is_set():
         try:
-            process.ingest(STORE, hub.load_config())
-        except Exception as e:  # never crash the app over one bad file
+            cfg = hub.load_config()
+            process.ingest(STORE, cfg)
+            if settings.get(cfg)["summaries"] == "lite":
+                cs = threads.cards(STORE, process.channels(cfg), process.profile(cfg))
+                threads.summarise_pending(STORE, cs, cfg.get("me") or "me")
+        except Exception as e:  # never crash the app over one bad file or a failed summary
             print(f"[process] {e}")
         minutes = settings.get(hub.load_config())["process_minutes"]
         _stop.wait(minutes * 60)

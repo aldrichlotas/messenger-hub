@@ -203,12 +203,12 @@ class Bot:
         elif cmd == "/today":
             self.send(compose_brief(self.st, cfg, "today", now) or "Nothing due today.")
         elif cmd == "/due":
-            d = process.dashboard(self.st, now)
+            d = process.dashboard(self.st, now, cfg)
             items = d["overdue"] + d["deadlines"]
             self.send("\n".join(line(e, now, detail, names) for e in items[:12]) or "No upcoming deadlines.")
         elif cmd == "/review":
-            d = process.dashboard(self.st, now)
-            self.send(f"{d['review_count']} suggestions and {d['unread_mentions']} unread mentions wait on your laptop.")
+            d = process.dashboard(self.st, now, cfg)
+            self.send(f"{d['review_count']} suggestions and {d['unread_mentions']} conversations that mention you wait on your laptop.")
         elif cmd == "/done":
             m = re.match(r"#?(\d+)", rest.strip())
             e = self.st.one("SELECT * FROM entry WHERE id = ?", (int(m.group(1)),)) if m else None
@@ -309,7 +309,7 @@ def due_alerts(st: Store, cfg: dict, now: dt.datetime) -> list:
 def compose_brief(st: Store, cfg: dict, name: str, now: dt.datetime) -> str:
     names = settings.profile(cfg)["names"]
     detail = settings.get(cfg)["detail"]
-    d = process.dashboard(st, now)
+    d = process.dashboard(st, now, cfg)
     fmt = lambda es: [line(e, now, detail, names) for e in es]  # noqa: E731
     later_today = [e for e in d["today"] if e["due"] >= now.isoformat(timespec="minutes") or not e["due_has_time"]]
     parts = []
@@ -343,7 +343,7 @@ def compose_brief(st: Store, cfg: dict, name: str, now: dt.datetime) -> str:
     if d["inbox"]:
         extra.append(f"{len(d['inbox'])} undated notes")
     if d["unread_mentions"]:
-        extra.append(f"{d['unread_mentions']} unread mentions")
+        extra.append(f"{d['unread_mentions']} conversation{'s' if d['unread_mentions'] != 1 else ''} need{'' if d['unread_mentions'] != 1 else 's'} you")
     if d["review_count"]:
         extra.append(f"{d['review_count']} suggestions to review")
     if extra:

@@ -9,7 +9,7 @@ import json
 import os
 import uuid
 
-from . import rules
+from . import rules, threads
 from .store import ROOT, Store, now_iso
 
 CHATS = os.path.join(ROOT, "data", "chats")
@@ -247,8 +247,9 @@ def entries(st: Store, where: str, args=()) -> list:
     )
 
 
-def dashboard(st: Store, now: dt.datetime = None) -> dict:
+def dashboard(st: Store, now: dt.datetime = None, cfg: dict = None) -> dict:
     now = now or dt.datetime.now()
+    conv_cards = threads.cards(st, channels(cfg), profile(cfg), now) if cfg else []
     today = now.date().isoformat()
     tomorrow = (now.date() + dt.timedelta(days=1)).isoformat()
     horizon = (now - dt.timedelta(days=14)).isoformat(timespec="minutes")
@@ -272,12 +273,10 @@ def dashboard(st: Store, now: dt.datetime = None) -> dict:
         "review_count": st.one(
             f"SELECT COUNT(*) AS n FROM entry WHERE status = 'open' AND review = 'unreviewed' AND origin = 'rule' AND confidence >= {SUGGEST}"
         )["n"],
-        "mentions": st.q(
-            "SELECT m.id, m.strength, m.reason, m.read, m.org, i.author, i.chat_name, i.text, i.ts, i.ref FROM mention m"
-            " JOIN item i ON i.id = m.item_id WHERE i.ts >= ? ORDER BY m.read, i.ts DESC LIMIT 300",
-            ((now - dt.timedelta(days=30)).isoformat(timespec="minutes"),),
-        ),
-        "unread_mentions": st.one("SELECT COUNT(*) AS n FROM mention WHERE read = 0")["n"],
+        # One card per conversation that pings you (threads.py); handled ones never count as unread.
+        "cards": conv_cards,
+        "unread_mentions": sum(c["unread"] for c in conv_cards),
+        "needs_you": sum(c["handled"] is None for c in conv_cards),
         "wins": entries(st, "e.kind = 'win' ORDER BY e.created DESC LIMIT 50"),
         "last_process": st.get_meta("last_process"),
     }

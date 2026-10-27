@@ -10,6 +10,8 @@ hub.py                 CLI: app / process / config / org / chat / discover / syn
 hubos/store.py         SQLite store data/hub.db: item (messages), entry (deadline/meeting/task/capture/win), mention, sent
 hubos/rules.py         zero-token rules: find_date (English + Filipino), mention, analyse, capture; tests in tests/
 hubos/process.py       ingest data/chats/* into the store, derive entries/mentions; dashboard() feeds app and bot
+hubos/threads.py       split chats into conversations (silence gaps + reply links); one mention card per conversation:
+                       label, handled?, context excerpt; optional Haiku one-liners; `hub.py threads --report` checks it
 hubos/bot.py           Telegram bot (pairing, capture, commands) + scheduler (briefs, alerts, quiet hours, cap)
 hubos/app.py + ui/app.html   `hub.py app`: local server, background processor, pywebview window, startup toggle
 data/secrets.json      bot token, paired chat id, pair code (git-ignored with the rest of data/)

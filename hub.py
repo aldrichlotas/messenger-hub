@@ -3,6 +3,7 @@ roadmaps and briefs.
 
     py -3.10 hub.py app                                  the desktop app: today, deadlines, mentions, bot, settings
     py -3.10 hub.py process [--rescan [--since DATE]]    re-read synced chats with the rules (no tokens)
+    py -3.10 hub.py threads --report                     check conversations + mention cards; writes sample cards
     py -3.10 hub.py config                               edit orgs and pick their group chats in your browser
     py -3.10 hub.py status                               what's configured, synced and analysed
     py -3.10 hub.py discover [--match ECG]               refresh the list of your chats (opens Messenger)
@@ -462,6 +463,9 @@ def main() -> None:
     pr.add_argument("--rescan", action="store_true", help="re-run the rules over everything")
     pr.add_argument("--since", help="with --rescan: keep findings from this date (YYYY-MM-DD) open for review")
 
+    th = sub.add_parser("threads", help="check how chats split into conversations and the mention cards (no tokens)")
+    th.add_argument("--report", action="store_true", help="print the checks and write 10 sample cards (default)")
+    th.add_argument("--samples", type=int, default=10)
 
     cf = sub.add_parser("config", help="edit orgs and their chats in a local web page")
     cf.add_argument("--no-open", action="store_true", help="don't open the page in your browser")
@@ -540,6 +544,13 @@ def main() -> None:
 
         st = Store()
         print(process.rescan(st, cfg, args.since) if args.rescan else process.ingest(st, cfg))
+    elif args.cmd == "threads":
+        from hubos import process, threads
+        from hubos.store import Store
+
+        r = threads.report(Store(), process.channels(cfg), process.profile(cfg), cfg.get("me") or "me", args.samples)
+        for k, v in r.items():
+            print(f"{k:28} {v}")
     elif args.cmd == "config":
         import config_ui
 

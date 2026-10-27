@@ -20,6 +20,7 @@ DEFAULTS = {
     "ping_cap": 5,  # alert messages per day (briefs don't count)
     "detail": "short",  # what Telegram may show: "short" (cleaned titles) or "minimal" (org, type and time only)
     "process_minutes": 5,  # how often the app re-reads synced chats (no tokens)
+    "summaries": "off",  # "lite": Haiku writes one line per conversation that still needs you (uses your Claude plan)
 }
 
 

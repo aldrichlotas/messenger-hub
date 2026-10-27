@@ -11,7 +11,13 @@ py -3.10 hub.py app            # opens the app (and starts the hub if it isn't r
 ```
 
 - **Home**: Today (overdue, due today, undated notes), Deadlines (tomorrow, next 7 days, later, with
-  countdowns), and Mentions (you, your titles, your committees), so you don't have to backread.
+  countdowns), and Mentions, so you don't have to backread: one card per conversation that pings you
+  (your name, titles, committees, or a reply to your message). Each card says what kind of ask it is
+  (question, request, FYI…), whether you already handled it (you replied within an hour, or someone else
+  answered), and shows the messages around the ping. What still needs you comes first. Optional: Settings
+  → One-line summaries → Lite has Haiku write a line per open conversation (uses your Claude plan).
+  `py -3.10 hub.py threads --report` checks the conversation split and writes sample cards to
+  `data/reports/mention-cards.md` for someone else to read cold.
 - **Review**: dates, meetings and requests the rules found in your chats. Accept what's yours.
 - **Wins**: your achievements log, for LinkedIn later.
 - **Settings**: your names, your notes-to-self chat, your title, committees and the people above

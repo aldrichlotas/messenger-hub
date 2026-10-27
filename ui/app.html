@@ -61,6 +61,21 @@
   .chip.sug { background: var(--warn-soft); color: var(--warn); }
   .chip.s3 { background: var(--danger-soft); color: var(--danger); }
   .chip.s2 { background: var(--accent-soft); color: var(--accent); }
+  a { color: var(--accent); }
+  .conv .lbl { font-weight: 600; }
+  .conv.handled { opacity: .62; }
+  .conv .sum { margin-top: 4px; font-size: 13px; }
+  .lines { margin-top: 6px; background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 12.5px; max-height: 320px; overflow: auto; }
+  .lines .ln { padding: 2px 0 2px 7px; border-left: 2px solid transparent; word-break: break-word; white-space: pre-wrap; }
+  .lines .ln b { font-weight: 600; }
+  .lines .ln .t { color: var(--muted); font-size: 11px; margin-right: 4px; }
+  .lines .ln.ping { border-left-color: var(--danger); }
+  .lines .ln.ask { border-left-color: var(--warn); }
+  .lines .ln.reply b, .lines .ln.me b { color: var(--ok); }
+  .lines .gap { color: var(--muted); font-size: 11px; padding: 1px 0 1px 7px; }
+  .chip.q { background: var(--danger-soft); color: var(--danger); }
+  .chip.r { background: var(--warn-soft); color: var(--warn); }
+  .chip.ok { background: var(--ok-soft); color: var(--ok); }
   .src { font-size: 12px; color: var(--muted); background: var(--bg); border-radius: 7px; padding: 6px 8px; margin-top: 6px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
   .mention.unread .title { font-weight: 600; }
   .edit { display: grid; grid-template-columns: 1fr 190px 120px; gap: 6px; margin-top: 6px; }
@@ -121,7 +136,8 @@ let A = null;           // /api/app
 let tab = "home";
 let editing = null;     // entry id being edited
 let openSrc = new Set();
-let mentionFilter = { org: "", unread: false };
+let mentionFilter = { org: "", open: false };
+let openConv = new Set();
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -185,12 +201,29 @@ function entryCard(e, opts = {}) {
       ${edit}</div><div class="acts">${acts}</div></div>`;
 }
 
-function mentionCard(m) {
-  const when = new Date(m.ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  return `<div class="card mention ${m.read ? "" : "unread"}"><div class="bar" style="background:${orgColor(m.org)}"></div><div class="body">
-      <div class="title">${esc(m.text.length > 280 ? m.text.slice(0, 279) + "…" : m.text)}</div>
-      <div class="meta"><span class="chip s${m.strength}">${esc(m.reason)}</span><span>${esc(m.author || "?")}</span><span>${esc(m.chat_name || "")}</span><span>${esc(when)}</span><span>${esc(m.ref)}</span></div>
-    </div><div class="acts">${m.read ? `<button class="small ghost" data-mread="${m.id}" data-unread="1" title="Mark unread">●</button>` : `<button class="small" data-mread="${m.id}" title="Mark read">✓</button>`}</div></div>`;
+const LABELS = { question: ["asks you", "q"], request: ["asks you to do something", "r"], meeting: ["meeting", "r"], ping: ["wants your attention", "q"], fyi: ["for your information", ""], banter: ["banter", ""] };
+const fmtWhen = (ts) => new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtTime = (ts) => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+function convLines(lines) {
+  return lines.map((l) => l.gap ? `<div class="gap">… ${l.gap} more message${l.gap === 1 ? "" : "s"} …</div>`
+    : `<div class="ln ${l.role} ${l.is_me ? "me" : ""}"><span class="t">${esc(fmtTime(l.ts))}</span><b>${esc(l.is_me ? "You" : l.author || "?")}</b>: ${esc(l.text)}</div>`).join("");
+}
+
+function convCard(c) {
+  const [lbl, cls] = LABELS[c.label] || [c.label, ""];
+  const open = openConv.has(c.key);
+  const status = c.handled ? `<span class="chip ok">${esc(c.handled.how)}${c.handled.how === "banter" ? "" : " · " + esc(fmtTime(c.handled.ts))}</span>` : `<span class="chip q">needs you</span>`;
+  const due = c.due ? `<span class="chip r">due ${esc(fmtWhen(c.due))}</span>` : "";
+  return `<div class="card conv ${c.unread ? "unread" : ""} ${c.handled ? "handled" : ""}"><div class="bar" style="background:${orgColor(c.org)}"></div><div class="body">
+      <div class="title"><span class="lbl">${esc(c.asker || "?")}</span> <span class="chip ${cls}">${esc(lbl)}</span> ${due} ${status}</div>
+      ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}
+      <div class="lines">${convLines(open ? c.full : c.excerpt)}</div>
+      <div class="meta"><span>${esc(c.chat_name || "")}</span><span>${esc(fmtWhen(c.last_ping))}</span><span>${c.pings} ping${c.pings === 1 ? "" : "s"} · ${c.size} messages</span>
+        <a href="#" data-cexpand="${esc(c.key)}">${open ? "Show less" : `Whole conversation${c.size > 60 ? " (last 60)" : ""}`}</a>
+        <a href="#" data-copen="${esc(c.channel)}" data-key="${esc(c.key)}">Open in Messenger</a>
+        ${c.handled || c.summary ? "" : `<a href="#" data-csum="${esc(c.key)}" title="Haiku reads this conversation and writes one line (uses your Claude plan)">Summarise</a>`}</div>
+    </div><div class="acts">${c.handled ? "" : c.unread ? `<button class="small" data-cread="${esc(c.key)}" title="Mark read">✓</button>` : `<button class="small ghost" data-cread="${esc(c.key)}" data-unread="1" title="Mark unread">●</button>`}</div></div>`;
 }
 
 const list = (items, fn, empty) => (items.length ? items.map(fn).join("") : `<p class="empty">${empty}</p>`);
@@ -207,7 +240,7 @@ function home() {
   const d = A.dash;
   if (document.body.classList.contains("widget")) {
     const next = [...d.overdue, ...d.today, ...d.tomorrow].slice(0, 6);
-    return `<div class="panel"><h2>Next up <span class="sub">${d.unread_mentions} mentions · ${d.review_count} to review</span></h2>${list(next, entryCard, "Nothing due today or tomorrow.")}</div>`;
+    return `<div class="panel"><h2>Next up <span class="sub">${d.needs_you} need you · ${d.review_count} to review</span></h2>${list(next, entryCard, "Nothing due today or tomorrow.")}</div>`;
   }
   const groups = { "This week": [], Later: [] };
   const now = new Date(d.now), weekEnd = new Date(now); weekEnd.setDate(now.getDate() + 7);
@@ -217,7 +250,7 @@ function home() {
     if (d.tomorrow.some((t) => t.id === e.id)) continue;
     (due < weekEnd ? groups["This week"] : groups.Later).push(e);
   }
-  const unread = d.mentions.filter((m) => !m.read);
+  const needs = d.cards.filter((c) => !c.handled), done = d.cards.filter((c) => c.handled);
   return `<div class="grid">
     <section class="panel">
       <h2>Today <span class="sub">${esc(now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</span></h2>
@@ -233,9 +266,9 @@ function home() {
       ${d.review_count ? `<p class="hint">${d.review_count} more suggestion${d.review_count === 1 ? "" : "s"} wait${d.review_count === 1 ? "s" : ""} in <a href="#" data-tab="review">Review</a>.</p>` : ""}
     </section>
     <section class="panel">
-      <h2>Mentions <span class="sub">${unread.length} unread</span>${unread.length ? `<span class="spacer"></span><button class="small ghost" data-mreadall>Mark all read</button>` : ""}</h2>
-      ${list(unread.slice(0, 15), mentionCard, "No unread mentions. Nothing to backread.")}
-      ${unread.length > 15 ? `<p class="hint"><a href="#" data-tab="mentions">${unread.length - 15} more</a></p>` : ""}
+      <h2>Mentions <span class="sub">${needs.length} need${needs.length === 1 ? "s" : ""} you</span>${d.unread_mentions ? `<span class="spacer"></span><button class="small ghost" data-creadall>Mark all read</button>` : ""}</h2>
+      ${list(needs.slice(0, 12), convCard, "Nothing waiting on you. Every ping in the last 30 days is answered.")}
+      ${needs.length > 12 || done.length ? `<p class="hint"><a href="#" data-tab="mentions">${needs.length > 12 ? needs.length - 12 + " more, and " : ""}${done.length} already handled</a></p>` : ""}
     </section>
   </div>`;
 }
@@ -248,15 +281,15 @@ function review() {
 
 function mentions() {
   const d = A.dash;
-  let ms = d.mentions;
+  let ms = d.cards;
   if (mentionFilter.org) ms = ms.filter((m) => (m.org || "") === mentionFilter.org);
-  if (mentionFilter.unread) ms = ms.filter((m) => !m.read);
-  return `<div class="panel"><h2>Mentions <span class="sub">last 30 days: you, your titles, your committees, @everyone with a date</span></h2>
+  if (mentionFilter.open) ms = ms.filter((m) => !m.handled);
+  return `<div class="panel"><h2>Mentions <span class="sub">one card per conversation that pings you, last 30 days; what still needs you comes first</span></h2>
     <div class="row" style="margin-bottom:8px">
       <select id="mforg" style="width:auto"><option value="">All orgs</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === mentionFilter.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
-      <label style="margin:0" class="row"><span class="switch"><input type="checkbox" id="mfunread" ${mentionFilter.unread ? "checked" : ""}><span></span></span> Unread only</label>
-      <span class="spacer"></span><button class="small" data-mreadall>Mark all read</button>
-    </div>${list(ms, mentionCard, "No mentions.")}</div>`;
+      <label style="margin:0" class="row"><span class="switch"><input type="checkbox" id="mfunread" ${mentionFilter.open ? "checked" : ""}><span></span></span> Needs me only</label>
+      <span class="spacer"></span><button class="small" data-creadall>Mark all read</button>
+    </div>${list(ms, convCard, "No mentions.")}</div>`;
 }
 
 function wins() {
@@ -313,6 +346,9 @@ function settingsView() {
       <div><label>Most alerts per day</label><input type="number" id="pingcap" min="0" max="50" value="${s.ping_cap}"></div>
       <div class="full"><label>What Telegram may show for things found in chats</label>
         <select id="detail"><option value="short" ${s.detail === "short" ? "selected" : ""}>Short: org, type, time and a cleaned title</option><option value="minimal" ${s.detail === "minimal" ? "selected" : ""}>Minimal: org, type and time only</option></select></div>
+      <div class="full"><label>One-line summaries on mention cards</label>
+        <select id="summaries"><option value="off" ${s.summaries !== "lite" ? "selected" : ""}>Off: no tokens (you can still press Summarise on a card)</option><option value="lite" ${s.summaries === "lite" ? "selected" : ""}>Lite: Haiku summarises up to 5 new conversations that need you, each time chats are read</option></select>
+        <div class="hint">Summaries send that conversation's text to Claude through your Claude plan. Everything else stays on this laptop.</div></div>
     </div>
     <div class="row" style="margin-top:10px"><button class="primary" id="savesettings">Save</button></div>
   </section>
@@ -358,8 +394,11 @@ document.addEventListener("click", async (ev) => {
     editing = null;
     return api("entry", { id, title: box.querySelector('[data-f="title"]').value, due: due || null, due_has_time: due ? 1 : 0, org: box.querySelector('[data-f="org"]').value || null, review: "accepted" });
   }
-  if (t.dataset.mread) return api("mention-read", { id: +t.dataset.mread, unread: !!t.dataset.unread });
-  if (t.hasAttribute("data-mreadall")) return api("mention-read", { all: true }).then(() => toast("All caught up"));
+  if (t.dataset.cread) return api("card-read", { key: t.dataset.cread, unread: !!t.dataset.unread });
+  if (t.hasAttribute("data-creadall")) return api("card-read", { all: true }).then(() => toast("All caught up"));
+  if (t.dataset.cexpand) { ev.preventDefault(); openConv.has(t.dataset.cexpand) ? openConv.delete(t.dataset.cexpand) : openConv.add(t.dataset.cexpand); render(); return; }
+  if (t.dataset.copen) { ev.preventDefault(); return api("open-chat", { channel: t.dataset.copen, key: t.dataset.key }); }
+  if (t.dataset.csum) { ev.preventDefault(); toast("Summarising with Haiku…"); return api("summarise", { key: t.dataset.csum }); }
   if (t.id === "quickadd") return quickAdd();
   if (t.id === "addwin") { const v = $("#wintext").value.trim(); if (v) return api("capture", { text: "/win " + v }).then(() => toast("Win logged")); return; }
   if (t.id === "syncbtn" || t.hasAttribute("data-act-sync")) return api("sync").then(() => toast("Syncing in the hub's browser window…"));
@@ -373,7 +412,7 @@ document.addEventListener("click", async (ev) => {
   if (t.id === "savesettings") {
     const briefs = {};
     document.querySelectorAll("[data-brief]").forEach((i) => { briefs[i.dataset.brief] = { on: i.checked, at: document.querySelector(`[data-brieftime="${i.dataset.brief}"]`).value }; });
-    return api("settings", { briefs, quiet: { start: $("#q_start").value, end: $("#q_end").value }, alerts: $("#alerts").checked, ping_cap: +$("#pingcap").value, detail: $("#detail").value }).then(() => toast("Saved"));
+    return api("settings", { briefs, quiet: { start: $("#q_start").value, end: $("#q_end").value }, alerts: $("#alerts").checked, ping_cap: +$("#pingcap").value, detail: $("#detail").value, summaries: $("#summaries").value }).then(() => toast("Saved"));
   }
   if (t.id === "savetoken") { const v = $("#tgtoken").value.trim(); if (!v) return; return api("telegram-token", { token: v }).then(() => toast(A.telegram.error ? "Token didn't work: " + A.telegram.error : "Token saved. Now send /start " + A.telegram.pair_code)); }
   if (t.id === "tgtest") return api("telegram-test").then(() => toast("Sent. Check Telegram."));
@@ -387,7 +426,7 @@ document.addEventListener("change", (ev) => {
   const t = ev.target;
   if (t.id === "startup") api("startup", { on: t.checked }).then(() => toast(t.checked ? "Will start with Windows" : "Won't start with Windows"));
   if (t.id === "mforg") { mentionFilter.org = t.value; render(); }
-  if (t.id === "mfunread") { mentionFilter.unread = t.checked; render(); }
+  if (t.id === "mfunread") { mentionFilter.open = t.checked; render(); }
 });
 
 async function quickAdd() {

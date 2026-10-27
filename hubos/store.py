@@ -4,6 +4,8 @@
     entry    something to act on: deadline | meeting | task | capture | win
     mention  an item that mentions you, your role or your committees
     sent     what the bot already sent (dedupes briefs and alerts)
+    conv_state  per-conversation read mark and cached summary (see threads.py)
+    event    things worth counting, like opening a chat in Messenger from the app
     meta     small key/value state (ingest bookmarks...)
 """
 
@@ -61,6 +63,13 @@ CREATE TABLE IF NOT EXISTS mention (
     ts TEXT
 );
 CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, at TEXT);
+CREATE TABLE IF NOT EXISTS conv_state (
+    key TEXT PRIMARY KEY,            -- "<channel>#<first message id>" of a conversation
+    read_upto TEXT,                  -- pings up to this time are read
+    summary TEXT,                    -- optional one-line model summary
+    summary_hash TEXT                -- the conversation's content when it was summarised
+);
+CREATE TABLE IF NOT EXISTS event (kind TEXT, ref TEXT, at TEXT);  -- e.g. "open-source": backreads from the app
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX IF NOT EXISTS entry_due ON entry (status, due);
 CREATE INDEX IF NOT EXISTS item_channel ON item (channel, ts);
