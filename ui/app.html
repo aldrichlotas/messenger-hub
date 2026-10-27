@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messenger Hub</title>
+<style>
+  :root {
+    --bg: #f4f5f8; --panel: #ffffff; --ink: #1b2130; --muted: #6a7386; --line: #e1e4ea;
+    --accent: #2f6fed; --accent-ink: #fff; --accent-soft: #e8effd;
+    --ok: #1e8e5a; --ok-soft: #e4f5ec; --warn: #b26a00; --warn-soft: #fdf1df; --danger: #c23b3b; --danger-soft: #fbe7e7;
+    --chip: #eef0f4;
+    --ecg: #7b4fd6; --imes: #0f8a8a; --passion: #d1642a; --personal: #6a7386;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b1f27; --ink: #e8ebf1; --muted: #98a1b3; --line: #2b313c;
+      --accent: #6b9bff; --accent-ink: #0d1220; --accent-soft: #212e4a;
+      --ok: #4cc38a; --ok-soft: #173326; --warn: #e3a64b; --warn-soft: #3a2c15; --danger: #f07171; --danger-soft: #3d1c1c;
+      --chip: #262b35; --ecg: #a684ff; --imes: #3cc2c2; --passion: #ff9a5c; --personal: #98a1b3;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; white-space: nowrap; }
+  .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+  .tabs button { border: 0; background: none; padding: 7px 11px; border-radius: 7px; color: var(--muted); font-weight: 600; }
+  .tabs button.on { background: var(--accent-soft); color: var(--accent); }
+  .tabs .n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+  .spacer { flex: 1; }
+  .quick { display: flex; gap: 6px; flex: 1 1 320px; max-width: 560px; }
+  input, textarea, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; width: 100%; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 7px; padding: 6px 11px; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.small { padding: 2px 8px; font-size: 12.5px; }
+  button.ghost { border-color: transparent; background: none; color: var(--muted); }
+  button.ghost:hover { color: var(--ink); border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { padding: 16px 18px 40px; max-width: 1500px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 16px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 14px 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; display: flex; gap: 8px; align-items: center; }
+  .panel h2 .sub { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+  .panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+  .panel h3:first-of-type { margin-top: 4px; }
+  .empty { color: var(--muted); padding: 6px 0; }
+  .card { border-top: 1px solid var(--line); padding: 9px 0; display: flex; gap: 10px; }
+  .card:first-child { border-top: 0; }
+  .card .body { flex: 1; min-width: 0; }
+  .card .title { word-break: break-word; }
+  .card .meta { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .card .acts { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-start; }
+  .card.overdue .when { color: var(--danger); font-weight: 600; }
+  .card.soon .when { color: var(--warn); font-weight: 600; }
+  .bar { width: 4px; border-radius: 3px; background: var(--personal); flex: none; }
+  .chip { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 99px; background: var(--chip); color: var(--muted); line-height: 18px; }
+  .chip.sug { background: var(--warn-soft); color: var(--warn); }
+  .chip.s3 { background: var(--danger-soft); color: var(--danger); }
+  .chip.s2 { background: var(--accent-soft); color: var(--accent); }
+  .src { font-size: 12px; color: var(--muted); background: var(--bg); border-radius: 7px; padding: 6px 8px; margin-top: 6px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
+  .mention.unread .title { font-weight: 600; }
+  .edit { display: grid; grid-template-columns: 1fr 190px 120px; gap: 6px; margin-top: 6px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .form .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .orgbox { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; margin-top: 10px; }
+  .orgbox h4 { margin: 0 0 8px; font-size: 13px; }
+  .switch { position: relative; width: 34px; height: 20px; flex: none; display: inline-block; vertical-align: middle; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--line); border-radius: 99px; cursor: pointer; transition: .15s; }
+  .switch span::after { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+  .switch input:checked + span { background: var(--ok); }
+  .switch input:checked + span::after { transform: translateX(14px); }
+  .steps { margin: 0; padding-left: 18px; }
+  .steps li { margin-bottom: 8px; }
+  code { background: var(--chip); padding: 1px 5px; border-radius: 5px; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: .2s; pointer-events: none; z-index: 20; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  .modes { display: none; gap: 2px; }
+  .has-window .modes { display: flex; }
+  /* Sidebar and narrow windows */
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr 1fr; } .grid > :nth-child(3) { grid-column: 1 / -1; } }
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; } .grid > :nth-child(3) { grid-column: auto; }
+    header { padding: 8px 12px; } main { padding: 12px; } .form { grid-template-columns: 1fr; }
+    .edit { grid-template-columns: 1fr; } .quick { order: 9; flex-basis: 100%; max-width: none; }
+  }
+  /* Widget: a small floating card with what's next */
+  body.widget header .tabs, body.widget header h1, body.widget #syncbtn { display: none; }
+  body.widget main { padding: 8px; }
+  body.widget .panel { padding: 10px 12px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Messenger Hub</h1>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="quick">
+    <input id="quick" placeholder="Note to self… e.g. 'send IE plate bukas 9pm #school'">
+    <button class="primary" id="quickadd">Add</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="modes" id="modes">
+    <button class="small ghost" data-mode="normal" title="Full window">▣</button>
+    <button class="small ghost" data-mode="sidebar" title="Sidebar, docked right, always on top">▐</button>
+    <button class="small ghost" data-mode="widget" title="Small widget, always on top">▫</button>
+  </div>
+  <button class="small" id="syncbtn" title="Opens the hub's browser window and fetches new messages from your chosen chats">Sync</button>
+</header>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+let A = null;           // /api/app
+let tab = "home";
+let editing = null;     // entry id being edited
+let openSrc = new Set();
+let mentionFilter = { org: "", unread: false };
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200); }
+
+async function api(action, body) {
+  const r = await fetch(action ? "/api/app/" + action : "/api/app", action ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) } : {});
+  const j = await r.json();
+  if (!r.ok) { toast(j.error || "Something went wrong"); throw new Error(j.error); }
+  A = j; render(); return j;
+}
+
+// --- formatting --------------------------------------------------------------------------------
+const ORG_COLORS = ["--ecg", "--imes", "--passion", "--accent", "--ok", "--warn"];
+function orgColor(key) {
+  if (!key) return "var(--personal)";
+  if (["ecg", "imes", "passion"].includes(key)) return `var(--${key})`;
+  const keys = Object.keys(A.orgs); return `var(${ORG_COLORS[keys.indexOf(key) % ORG_COLORS.length] || "--accent"})`;
+}
+const orgName = (k) => (k && A.orgs[k] ? k.toUpperCase() : k ? k.toUpperCase() : "Personal");
+function dueLabel(e) {
+  if (!e.due) return "no date";
+  const d = new Date(e.due), now = new Date(A.dash.now);
+  const days = Math.round((new Date(d.toDateString()) - new Date(now.toDateString())) / 864e5);
+  const day = days === 0 ? "Today" : days === 1 ? "Tomorrow" : days === -1 ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return e.due_has_time ? `${day} ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : day;
+}
+function countdown(e) {
+  if (!e.due) return "";
+  const ms = new Date(e.due) - new Date();
+  const abs = Math.abs(ms), h = Math.floor(abs / 36e5), dd = Math.floor(h / 24), m = Math.floor((abs % 36e5) / 6e4);
+  const span = dd >= 2 ? `${dd} days` : h >= 1 ? `${h}h ${m}m` : `${m}m`;
+  return ms < 0 ? `${span} overdue` : `in ${span}`;
+}
+const KIND = { deadline: "Deadline", meeting: "Meeting", task: "For you", capture: "Note", win: "Win" };
+
+function entryCard(e, opts = {}) {
+  const ms = e.due ? new Date(e.due) - new Date() : null;
+  const cls = ms !== null && ms < 0 ? "overdue" : ms !== null && ms < 864e5 ? "soon" : "";
+  const sug = e.origin === "rule" && e.review === "unreviewed";
+  const src = e.source_text && e.origin === "rule";
+  const meta = [
+    `<span class="when">${esc(dueLabel(e))}${e.due ? " · " + esc(countdown(e)) : ""}</span>`,
+    `<span class="chip">${esc(KIND[e.kind] || e.kind)}</span>`,
+    `<span>${esc(orgName(e.org))}</span>`,
+    e.chat_name && e.origin === "rule" ? `<span>${esc(e.chat_name)}${e.author ? " · " + esc(e.author) : ""}</span>` : "",
+    sug ? `<span class="chip sug" title="${esc(e.reasons || "")}">suggested ${Math.round(e.confidence * 100)}%</span>` : "",
+  ].join("");
+  const acts = opts.review
+    ? `<button class="small primary" data-act="accept" data-id="${e.id}">Accept</button><button class="small" data-act="reject" data-id="${e.id}">Not mine</button><button class="small ghost" data-act="edit" data-id="${e.id}">Edit</button>`
+    : `<button class="small" data-act="done" data-id="${e.id}" title="Mark done">✓</button>${sug ? `<button class="small" data-act="accept" data-id="${e.id}" title="Yes, track this">Keep</button>` : ""}<button class="small ghost" data-act="dismiss" data-id="${e.id}" title="Dismiss">✕</button><button class="small ghost" data-act="edit" data-id="${e.id}" title="Edit">✎</button>`;
+  const edit = editing === e.id ? `<div class="edit">
+      <input data-f="title" value="${esc(e.title)}">
+      <input data-f="due" type="datetime-local" value="${esc((e.due || "").slice(0, 16))}">
+      <select data-f="org"><option value="">Personal</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === e.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
+      <div class="row" style="grid-column:1/-1"><button class="small primary" data-act="save" data-id="${e.id}">Save</button><button class="small ghost" data-act="cancel">Cancel</button></div>
+    </div>` : "";
+  return `<div class="card ${cls}"><div class="bar" style="background:${orgColor(e.org)}"></div><div class="body">
+      <div class="title">${esc(e.title)}</div><div class="meta">${meta}</div>
+      ${src ? (openSrc.has(e.id) || opts.review ? `<div class="src">${esc(e.source_text)}${e.reasons ? `\n— ${esc(e.reasons)} · ${esc(e.ref || "")}` : ""}</div>` : `<button class="small ghost" data-act="src" data-id="${e.id}" style="margin-top:4px">Show message</button>`) : ""}
+      ${edit}</div><div class="acts">${acts}</div></div>`;
+}
+
+function mentionCard(m) {
+  const when = new Date(m.ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return `<div class="card mention ${m.read ? "" : "unread"}"><div class="bar" style="background:${orgColor(m.org)}"></div><div class="body">
+      <div class="title">${esc(m.text.length > 280 ? m.text.slice(0, 279) + "…" : m.text)}</div>
+      <div class="meta"><span class="chip s${m.strength}">${esc(m.reason)}</span><span>${esc(m.author || "?")}</span><span>${esc(m.chat_name || "")}</span><span>${esc(when)}</span><span>${esc(m.ref)}</span></div>
+    </div><div class="acts">${m.read ? `<button class="small ghost" data-mread="${m.id}" data-unread="1" title="Mark unread">●</button>` : `<button class="small" data-mread="${m.id}" title="Mark read">✓</button>`}</div></div>`;
+}
+
+const list = (items, fn, empty) => (items.length ? items.map(fn).join("") : `<p class="empty">${empty}</p>`);
+
+// --- views -------------------------------------------------------------------------------------
+function renderTabs() {
+  const d = A.dash;
+  const tabs = [["home", "Home"], ["review", "Review", d.review_count], ["mentions", "Mentions", d.unread_mentions], ["wins", "Wins"], ["settings", "Settings"]];
+  $("#tabs").innerHTML = tabs.map(([k, l, n]) => `<button class="${tab === k ? "on" : ""}" data-tab="${k}">${l}${n ? `<span class="n">${n > 99 ? "99+" : n}</span>` : ""}</button>`).join("") + `<button data-href="/config">Chats &amp; orgs</button>`;
+  const s = $("#syncbtn"); s.disabled = A.syncing; s.textContent = A.syncing ? "Syncing…" : "Sync";
+}
+
+function home() {
+  const d = A.dash;
+  if (document.body.classList.contains("widget")) {
+    const next = [...d.overdue, ...d.today, ...d.tomorrow].slice(0, 6);
+    return `<div class="panel"><h2>Next up <span class="sub">${d.unread_mentions} mentions · ${d.review_count} to review</span></h2>${list(next, entryCard, "Nothing due today or tomorrow.")}</div>`;
+  }
+  const groups = { "This week": [], Later: [] };
+  const now = new Date(d.now), weekEnd = new Date(now); weekEnd.setDate(now.getDate() + 7);
+  for (const e of d.deadlines) {
+    const due = new Date(e.due);
+    if (due.toDateString() === now.toDateString()) continue;  // shown under Today
+    if (d.tomorrow.some((t) => t.id === e.id)) continue;
+    (due < weekEnd ? groups["This week"] : groups.Later).push(e);
+  }
+  const unread = d.mentions.filter((m) => !m.read);
+  return `<div class="grid">
+    <section class="panel">
+      <h2>Today <span class="sub">${esc(now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</span></h2>
+      ${d.overdue.length ? `<h3>Overdue</h3>${d.overdue.map((e) => entryCard(e)).join("")}` : ""}
+      <h3>Due and happening today</h3>${list(d.today, (e) => entryCard(e), "Nothing due today.")}
+      <h3>Notes without a date</h3>${list(d.inbox.slice(0, 12), (e) => entryCard(e), "Inbox zero. Add notes above, on Telegram, or by messaging yourself on Messenger.")}
+    </section>
+    <section class="panel">
+      <h2>Deadlines</h2>
+      <h3>Tomorrow</h3>${list(d.tomorrow, (e) => entryCard(e), "Nothing due tomorrow.")}
+      <h3>Next 7 days</h3>${list(groups["This week"], (e) => entryCard(e), "Nothing else this week.")}
+      ${groups.Later.length ? `<h3>Later</h3>${groups.Later.map((e) => entryCard(e)).join("")}` : ""}
+      ${d.review_count ? `<p class="hint">${d.review_count} more suggestion${d.review_count === 1 ? "" : "s"} wait${d.review_count === 1 ? "s" : ""} in <a href="#" data-tab="review">Review</a>.</p>` : ""}
+    </section>
+    <section class="panel">
+      <h2>Mentions <span class="sub">${unread.length} unread</span>${unread.length ? `<span class="spacer"></span><button class="small ghost" data-mreadall>Mark all read</button>` : ""}</h2>
+      ${list(unread.slice(0, 15), mentionCard, "No unread mentions. Nothing to backread.")}
+      ${unread.length > 15 ? `<p class="hint"><a href="#" data-tab="mentions">${unread.length - 15} more</a></p>` : ""}
+    </section>
+  </div>`;
+}
+
+function review() {
+  const d = A.dash;
+  return `<div class="panel"><h2>Review suggestions <span class="sub">things the rules found in your chats; accept what's yours, the rest is dropped</span></h2>
+    ${list(d.review, (e) => entryCard(e, { review: true }), "Nothing to review.")}</div>`;
+}
+
+function mentions() {
+  const d = A.dash;
+  let ms = d.mentions;
+  if (mentionFilter.org) ms = ms.filter((m) => (m.org || "") === mentionFilter.org);
+  if (mentionFilter.unread) ms = ms.filter((m) => !m.read);
+  return `<div class="panel"><h2>Mentions <span class="sub">last 30 days: you, your titles, your committees, @everyone with a date</span></h2>
+    <div class="row" style="margin-bottom:8px">
+      <select id="mforg" style="width:auto"><option value="">All orgs</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === mentionFilter.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
+      <label style="margin:0" class="row"><span class="switch"><input type="checkbox" id="mfunread" ${mentionFilter.unread ? "checked" : ""}><span></span></span> Unread only</label>
+      <span class="spacer"></span><button class="small" data-mreadall>Mark all read</button>
+    </div>${list(ms, mentionCard, "No mentions.")}</div>`;
+}
+
+function wins() {
+  return `<div class="panel"><h2>Wins <span class="sub">your achievements log, the evidence for LinkedIn later</span></h2>
+    <div class="row" style="margin-bottom:10px"><input id="wintext" placeholder="e.g. led the Frosh Convocation pubmats, 14 posts #ecg" style="flex:1"><button class="primary" id="addwin">Log win</button></div>
+    <p class="hint">Also: <code>/win …</code> on Telegram, or start a note to yourself with "win:".</p>
+    ${list(A.dash.wins, (e) => `<div class="card"><div class="bar" style="background:${orgColor(e.org)}"></div><div class="body"><div class="title">${esc(e.title)}</div><div class="meta"><span>${esc(orgName(e.org))}</span><span>${esc((e.created || "").slice(0, 10))}</span></div></div></div>`, "No wins logged yet.")}</div>`;
+}
+
+function settingsView() {
+  const p = A.profile, s = A.settings, tg = A.telegram;
+  const orgBoxes = Object.entries(A.orgs).map(([k, o]) => `<div class="orgbox" data-org="${esc(k)}"><h4>${esc(o.name)} <span class="chip">${o.chats} chats</span></h4>
+      <div class="form">
+        <div><label>Your title</label><input data-of="my_title" value="${esc(o.my_title || "")}" placeholder="e.g. DCCO"></div>
+        <div><label>Other ways people refer to your role (comma separated)</label><input data-of="aliases" value="${esc((o.aliases || []).join(", "))}" placeholder="Deputy CCO, DCCO"></div>
+        <div><label>Committees you lead or handle</label><input data-of="committees" value="${esc((o.committees || []).join(", "))}" placeholder="Creatives, Publicity, Media, Linkages"></div>
+        <div><label>People above you (names or nicknames)</label><input data-of="above" value="${esc((o.above || []).join(", "))}" placeholder="Sam, Isabelle Reyes, Ystiphen"></div>
+      </div></div>`).join("");
+  const briefs = Object.entries(s.briefs).map(([k, b]) => `<div class="row" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-brief="${k}" ${b.on ? "checked" : ""}><span></span></span><span style="width:80px;text-transform:capitalize">${k}</span><input type="time" data-brieftime="${k}" value="${esc(b.at)}" style="width:130px"></div>`).join("");
+  return `<div class="grid" style="grid-template-columns:1fr 1fr">
+  <section class="panel">
+    <h2>You</h2>
+    <div class="form">
+      <div><label>Your name in chats</label><input id="p_me" value="${esc(A.me || "")}"></div>
+      <div><label>Names and nicknames people use for you</label><input id="p_names" value="${esc(p.names.join(", "))}" placeholder="Aldrich, Aldrich Lotas, Ald"></div>
+      <div class="full"><label>Your notes-to-self chat (Messenger)</label>
+        <select id="p_self"><option value="">Not set</option>${A.selfCandidates.map((c) => `<option value="${esc(c.url)}" ${c.url === p.self_chat ? "selected" : ""}>${esc(c.name)}${c.preview ? " · " + esc(c.preview.slice(0, 40)) : ""}</option>`).join("")}${p.self_chat && !A.selfCandidates.some((c) => c.url === p.self_chat) ? `<option value="${esc(p.self_chat)}" selected>${esc(p.self_chat)}</option>` : ""}</select>
+        <div class="hint">The chat with yourself you already use for notes. Everything you send there becomes a note in the hub on the next sync.${p.self_slug ? " Synced." : p.self_chat ? " Not synced yet." : ""}</div></div>
+    </div>
+    ${orgBoxes}
+    <div class="row" style="margin-top:12px"><button class="primary" id="saveprofile">Save and re-scan</button><span class="hint">Re-scanning is local and uses no tokens.</span></div>
+  </section>
+  <div>
+  <section class="panel">
+    <h2>Telegram bot ${tg.paired ? '<span class="chip s2">paired</span>' : ""}</h2>
+    <ol class="steps">
+      <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code> and follow the steps. Copy the token it gives you.
+        <div class="row" style="margin-top:6px"><input id="tgtoken" type="password" placeholder="${tg.has_token ? "Token saved; paste a new one to replace it" : "Paste the bot token"}" style="flex:1"><button class="small" id="savetoken">Save</button></div>
+        ${tg.bot_name ? `<div class="hint">Bot: @${esc(tg.bot_name)}</div>` : ""}</li>
+      <li>Send <code>/start ${esc(tg.pair_code || "")}</code> to your bot${tg.bot_name ? ` (@${esc(tg.bot_name)})` : ""}. Only that chat will ever get messages.</li>
+    </ol>
+    ${tg.error ? `<p class="hint" style="color:var(--danger)">${esc(tg.error)}</p>` : ""}
+    <div class="row"><button class="small" id="tgtest" ${tg.paired ? "" : "disabled"}>Send me today's brief</button>${tg.paired ? `<button class="small ghost" id="tgunpair">Unpair</button>` : ""}</div>
+    <p class="hint">Telegram gets only what you need to know: org, type, time and a cleaned title (no links, contacts or other people's @mentions). Message text stays on this laptop.</p>
+  </section>
+  <section class="panel">
+    <h2>Briefs and alerts</h2>
+    ${briefs}
+    <div class="form" style="margin-top:8px">
+      <div><label>Quiet from</label><input type="time" id="q_start" value="${esc(s.quiet.start)}"></div>
+      <div><label>Quiet until</label><input type="time" id="q_end" value="${esc(s.quiet.end)}"></div>
+      <div><label>Alerts (meeting in 30 min, due within 2 h / 24 h)</label><span class="switch"><input type="checkbox" id="alerts" ${s.alerts ? "checked" : ""}><span></span></span></div>
+      <div><label>Most alerts per day</label><input type="number" id="pingcap" min="0" max="50" value="${s.ping_cap}"></div>
+      <div class="full"><label>What Telegram may show for things found in chats</label>
+        <select id="detail"><option value="short" ${s.detail === "short" ? "selected" : ""}>Short: org, type, time and a cleaned title</option><option value="minimal" ${s.detail === "minimal" ? "selected" : ""}>Minimal: org, type and time only</option></select></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="primary" id="savesettings">Save</button></div>
+  </section>
+  <section class="panel">
+    <h2>This laptop</h2>
+    <div class="row" style="margin-bottom:8px"><span class="switch"><input type="checkbox" id="startup" ${A.startup ? "checked" : ""}><span></span></span> Start Messenger Hub with Windows</div>
+    <div class="row"><button class="small" id="deskshort">${A.desktopShortcut ? "Desktop shortcut ✓" : "Add desktop shortcut"}</button><button class="small" id="rescan">Re-scan chats (no tokens)</button><button class="small" data-act-sync>Sync now</button><span class="spacer"></span><button class="small ghost" id="quit">Quit hub</button></div>
+    <p class="hint">Last read ${esc((A.dash.last_process || "never").replace("T", " "))}. "Sync now" opens the hub's browser window to fetch new messages from your chosen chats. Closing this window keeps the hub running for briefs; "Quit hub" stops it.</p>
+  </section>
+  </div></div>`;
+}
+
+function render() {
+  if (!A) return;
+  renderTabs();
+  const views = { home, review, mentions, wins, settings: settingsView };
+  const keepFocus = document.activeElement && document.activeElement.id;
+  $("#main").innerHTML = views[tab]();
+  if (keepFocus && document.getElementById(keepFocus) && tab !== "settings") document.getElementById(keepFocus).focus();
+}
+
+// --- events ------------------------------------------------------------------------------------
+const csv = (v) => v.split(",").map((x) => x.trim()).filter(Boolean);
+
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("button, a, [data-tab]");
+  if (!t) return;
+  if (t.dataset.tab) { ev.preventDefault(); tab = t.dataset.tab; editing = null; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.href) { location.href = t.dataset.href; return; }
+  if (t.dataset.mode && window.pywebview) { await window.pywebview.api.set_mode(t.dataset.mode); document.body.classList.toggle("widget", t.dataset.mode === "widget"); render(); return; }
+  const id = t.dataset.id && +t.dataset.id;
+  const act = t.dataset.act;
+  if (act === "done") return api("entry", { id, status: "done", review: "accepted" }).then(() => toast("Done ✓"));
+  if (act === "dismiss") return api("entry", { id, status: "dismissed" });
+  if (act === "accept") return api("entry", { id, review: "accepted" }).then(() => toast("Tracking it"));
+  if (act === "reject") return api("entry", { id, review: "rejected", status: "dismissed" });
+  if (act === "edit") { editing = id; render(); return; }
+  if (act === "cancel") { editing = null; render(); return; }
+  if (act === "src") { openSrc.add(id); render(); return; }
+  if (act === "save") {
+    const box = t.closest(".edit");
+    const due = box.querySelector('[data-f="due"]').value;
+    editing = null;
+    return api("entry", { id, title: box.querySelector('[data-f="title"]').value, due: due || null, due_has_time: due ? 1 : 0, org: box.querySelector('[data-f="org"]').value || null, review: "accepted" });
+  }
+  if (t.dataset.mread) return api("mention-read", { id: +t.dataset.mread, unread: !!t.dataset.unread });
+  if (t.hasAttribute("data-mreadall")) return api("mention-read", { all: true }).then(() => toast("All caught up"));
+  if (t.id === "quickadd") return quickAdd();
+  if (t.id === "addwin") { const v = $("#wintext").value.trim(); if (v) return api("capture", { text: "/win " + v }).then(() => toast("Win logged")); return; }
+  if (t.id === "syncbtn" || t.hasAttribute("data-act-sync")) return api("sync").then(() => toast("Syncing in the hub's browser window…"));
+  if (t.id === "saveprofile") {
+    const orgs = {};
+    document.querySelectorAll(".orgbox").forEach((b) => {
+      const o = {}; b.querySelectorAll("[data-of]").forEach((i) => { o[i.dataset.of] = i.dataset.of === "my_title" ? i.value : csv(i.value); }); orgs[b.dataset.org] = o;
+    });
+    return api("profile", { me: $("#p_me").value, names: csv($("#p_names").value), self_chat: $("#p_self").value, orgs }).then(() => toast("Saved and re-scanned"));
+  }
+  if (t.id === "savesettings") {
+    const briefs = {};
+    document.querySelectorAll("[data-brief]").forEach((i) => { briefs[i.dataset.brief] = { on: i.checked, at: document.querySelector(`[data-brieftime="${i.dataset.brief}"]`).value }; });
+    return api("settings", { briefs, quiet: { start: $("#q_start").value, end: $("#q_end").value }, alerts: $("#alerts").checked, ping_cap: +$("#pingcap").value, detail: $("#detail").value }).then(() => toast("Saved"));
+  }
+  if (t.id === "savetoken") { const v = $("#tgtoken").value.trim(); if (!v) return; return api("telegram-token", { token: v }).then(() => toast(A.telegram.error ? "Token didn't work: " + A.telegram.error : "Token saved. Now send /start " + A.telegram.pair_code)); }
+  if (t.id === "tgtest") return api("telegram-test").then(() => toast("Sent. Check Telegram."));
+  if (t.id === "tgunpair") { if (confirm("Unpair the Telegram chat? You'll need to send /start with the new code again.")) return api("telegram-unpair"); return; }
+  if (t.id === "deskshort") return api("desktop-shortcut").then(() => toast("Shortcut on your desktop: opens the hub"));
+  if (t.id === "rescan") return api("process", { rescan: true }).then(() => toast("Re-scanned"));
+  if (t.id === "quit") { if (confirm("Quit Messenger Hub? Briefs and the bot stop until you open it again.")) { await fetch("/api/app/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); document.body.innerHTML = "<main><p>Messenger Hub stopped. You can close this window.</p></main>"; } return; }
+});
+
+document.addEventListener("change", (ev) => {
+  const t = ev.target;
+  if (t.id === "startup") api("startup", { on: t.checked }).then(() => toast(t.checked ? "Will start with Windows" : "Won't start with Windows"));
+  if (t.id === "mforg") { mentionFilter.org = t.value; render(); }
+  if (t.id === "mfunread") { mentionFilter.unread = t.checked; render(); }
+});
+
+async function quickAdd() {
+  const v = $("#quick").value.trim();
+  if (!v) return;
+  await api("capture", { text: v });
+  $("#quick").value = "";
+  toast("Saved");
+}
+$("#quick").addEventListener("keydown", (e) => { if (e.key === "Enter") quickAdd(); });
+
+window.addEventListener("pywebviewready", () => document.body.classList.add("has-window"));
+
+// Refresh every minute (countdowns, new messages processed in the background), but never while typing.
+async function refresh() {
+  const busy = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+  if (busy || editing || tab === "settings") return;
+  try { A = await (await fetch("/api/app")).json(); render(); } catch { /* hub stopped */ }
+}
+setInterval(refresh, 60000);
+api();
+</script>
+</body>
+</html>

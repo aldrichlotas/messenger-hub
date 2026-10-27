@@ -1,0 +1,14 @@
+{
+  "me": "Your Name",
+  "orgs": {
+    "ecg": {
+      "name": "ECG Organization",
+      "match": "ECG",
+      "context": "What the org is and your role in it",
+      "outputs": ["roadmap"],
+      "chats": [
+        { "thread": "https://www.facebook.com/messages/t/1234567890", "name": "ECG Officers", "slug": null }
+      ]
+    }
+  }
+}

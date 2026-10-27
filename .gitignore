@@ -1,0 +1,8 @@
+# Chat content and personal config never go into git
+data/
+orgs.json
+.profile/
+STOP
+__pycache__/
+*.pyc
+.env
