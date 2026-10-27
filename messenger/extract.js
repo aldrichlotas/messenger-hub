@@ -185,35 +185,78 @@
     if (!root) return { ok: false, reason: 'no [role="log"] message list found' };
     const els = items(root);
     let added = 0;
+    const recs = new Map(
+      els.map((r) => {
+        if (r.matches('[data-scope="date_break"]')) return [r, extractBreak(r)];
+        expandSeeMore(r);
+        return [r, extractArticle(r)];
+      })
+    );
 
-    // New items above the first tagged one are older history: number them downwards from S.top.
+    // Messenger rebuilds rows as it scrolls, and a rebuilt row has lost its tag. Without this it was
+    // stored a second time (whole screens repeated ~20 rows later in the export). So an untagged row
+    // first takes back the tag of an identical row collected earlier that isn't on screen now; two
+    // genuinely identical messages are on screen together, so they never claim each other.
+    const mounted = new Set(els.map((r) => r.dataset.hsx).filter(Boolean));
+    let byRaw = null;
+    const claim = (r, near, maxDist) => {
+      const raw = recs.get(r).raw;
+      if (!raw) return null;
+      if (!byRaw) {
+        byRaw = new Map();
+        for (const [seq, rec] of S.rows) {
+          if (rec.raw) (byRaw.get(rec.raw) || byRaw.set(rec.raw, []).get(rec.raw)).push(seq);
+        }
+      }
+      let best = null;
+      for (const seq of byRaw.get(raw) || []) {
+        const d = Math.abs(parseFloat(seq) - near);
+        if (!mounted.has(seq) && d <= maxDist && (!best || d < best.d)) best = { seq, d };
+      }
+      if (!best) return null;
+      mounted.add(best.seq);
+      return best.seq;
+    };
+
+    // Untagged items above the first tagged one: rebuilt rows (claimed bottom-up from the tagged
+    // neighbour), then older history, numbered downwards from S.top.
     const firstTagged = els.findIndex((r) => r.dataset.hsx);
     const above = firstTagged === -1 ? els : els.slice(0, firstTagged);
-    above.forEach((r, i) => {
-      r.dataset.hsx = String(S.top - above.length + i);
+    let near = firstTagged === -1 ? S.top : parseFloat(els[firstTagged].dataset.hsx);
+    let maxDist = firstTagged === -1 ? Infinity : 40;
+    let k = above.length - 1;
+    for (; k >= 0; k--) {
+      const seq = claim(above[k], near, maxDist);
+      if (seq === null) break;
+      above[k].dataset.hsx = seq;
+      near = parseFloat(seq);
+      maxDist = 3;
+    }
+    const fresh = above.slice(0, k + 1);
+    fresh.forEach((r, i) => {
+      r.dataset.hsx = String(S.top - fresh.length + i);
     });
-    S.top -= above.length;
-    added += above.length;
+    S.top -= fresh.length;
+    added += fresh.length;
 
-    // Anything else untagged was remounted mid-list or arrived at the bottom.
+    // Anything else untagged was rebuilt mid-list or arrived at the bottom.
     let prev = null;
     for (const r of els) {
       if (!r.dataset.hsx) {
-        r.dataset.hsx = prev === null ? String(++S.bottom) : String(prev + 0.001);
-        added += 1;
+        const seq = prev === null ? null : claim(r, prev, 3);
+        if (seq !== null) {
+          r.dataset.hsx = seq;
+        } else {
+          r.dataset.hsx = prev === null ? String(++S.bottom) : String(prev + 0.001);
+          added += 1;
+        }
       }
       prev = parseFloat(r.dataset.hsx);
       if (prev > S.bottom) S.bottom = Math.ceil(prev);
     }
 
     for (const r of els) {
-      let rec;
-      if (r.matches('[data-scope="date_break"]')) {
-        rec = extractBreak(r);
-      } else {
-        expandSeeMore(r);
-        rec = extractArticle(r);
-      }
+      const rec = recs.get(r);
       const old = S.rows.get(r.dataset.hsx);
       // Keep the richer snapshot (lazy images may not have loaded the first time).
       if (!old || JSON.stringify(rec).length >= JSON.stringify(old).length) S.rows.set(r.dataset.hsx, rec);

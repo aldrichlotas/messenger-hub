@@ -163,6 +163,24 @@ def after_bookmark(fresh: list, existing: list) -> list:
     return new
 
 
+def drop_repeats(messages: list, window: int = 40) -> list:
+    """Remove rows a scrape captured twice: same sender, text, attachments and minute as a row up to
+    `window` rows earlier. Back-to-back identical messages ("lol", "lol") are kept: those are real."""
+    out, recent, prev = [], [], None
+    for m in messages:
+        key = None
+        if m.get("kind") == "message" and m.get("ts"):
+            kinds = ",".join(sorted(a.get("type", "") for a in m.get("attachments", [])))
+            key = (m.get("sender"), norm(m.get("text")), kinds, m["ts"][:16])
+            if (norm(m.get("text")) or kinds) and key != prev and key in recent:
+                prev = key  # "A B A B": the second B follows a dropped A, and is a repeat too
+                continue
+        prev = key
+        recent = (recent + [key])[-window:]
+        out.append(m)
+    return out
+
+
 def merge(existing: list, fresh: list) -> list:
     """Append the messages in `fresh` that come after the end of `existing`.
     Lines the two up on the longest run of matching keys; if they don't overlap, the longer wins."""

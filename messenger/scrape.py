@@ -282,7 +282,8 @@ def scrape_thread(
     page.evaluate(script)
     title = page.evaluate("window.__hsx.title()")
     out_dir = out_dir or os.path.join(CHATS, common.slugify(title))
-    existing = [] if full else common.load_messages(out_dir)
+    # Older exports may hold rows an earlier scrape captured twice: clean them first, so ids stay consistent.
+    existing = [] if full else common.drop_repeats(common.load_messages(out_dir))
     known = {common.message_key(m) for m in existing}
     mark = common.bookmark(existing)
     print(f"Chat: {title}\nOutput: {out_dir}\nExisting messages: {len(existing)}")
@@ -344,7 +345,8 @@ def scrape_thread(
         new_part = common.after_bookmark(fresh, existing)
     else:
         new_part = [m for m in fresh if not since_dt or not m["ts"] or m["ts"] >= since_dt.isoformat()]
-    merged = existing + new_part
+    merged = common.drop_repeats(existing + new_part)
+    new_part = merged[len(existing) :]
     added = len(new_part)
     if not no_download:
         print(f"Downloading attachments for {len(new_part)} new entries...")
