@@ -78,6 +78,7 @@ class Bot:
         self._stop = threading.Event()
         self.threads = []
         self.last_error = None
+        self._named = False
 
     # Telegram API
     def _secrets(self):
@@ -89,8 +90,16 @@ class Bot:
             raise RuntimeError("no bot token")
         data = json.dumps(params).encode("utf-8")
         req = urllib.request.Request(API.format(token=token, method=method), data=data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=http_timeout) as r:
-            out = json.loads(r.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=http_timeout) as r:
+                out = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:  # Telegram explains 4xx errors in the body
+            try:
+                out = json.loads(e.read().decode("utf-8"))
+            except ValueError:
+                raise RuntimeError(f"Telegram HTTP {e.code}") from None
+            if "chat not found" in (out.get("description") or ""):
+                out["description"] = "chat not found: open your bot in Telegram and press Start once"
         if not out.get("ok"):
             raise RuntimeError(out.get("description") or "Telegram error")
         return out["result"]
@@ -108,7 +117,15 @@ class Bot:
 
     def status(self) -> dict:
         s = self._secrets()
+        if not self._named and s.get("telegram_token") and not s.get("bot_name") and "telegram_token" in s.get("from_env", []):
+            self._named = True
+            try:  # token came from .env: look up the bot's name once
+                s["bot_name"] = self.api("getMe", http_timeout=10).get("username")
+                settings.save_secrets(s)
+            except Exception as e:
+                self.last_error = str(e)
         return {
+            "from_env": s.get("from_env", []),
             "has_token": bool(s.get("telegram_token")),
             "paired": bool(s.get("telegram_chat_id")),
             "pair_code": s.get("pair_code"),

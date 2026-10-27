@@ -93,6 +93,23 @@ class BotTests(unittest.TestCase):
         b.handle(7, "/win ran the EB alignment")
         self.assertEqual(self.st.one("SELECT COUNT(*) AS n FROM entry WHERE kind = 'win'")["n"], 1)
 
+    def test_env_secrets(self):
+        env = os.path.join(self.tmp.name, ".env")
+        sec = os.path.join(self.tmp.name, "secrets.json")
+        with open(env, "w", encoding="utf-8") as f:
+            f.write("# comment\nTELEGRAM_API_ID=1\nTELEGRAM_USER_ID =4242\nTELEGRAM_BOT_TOKEN = 'abc:def'\n")
+        with mock.patch.object(settings, "ENV_FILE", env), mock.patch.object(settings, "SECRETS", sec), \
+                mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "", "TELEGRAM_USER_ID": ""}):
+            s = settings.load_secrets()
+            self.assertEqual((s["telegram_token"], s["telegram_chat_id"]), ("abc:def", 4242))
+            s["bot_name"] = "hubbot"
+            settings.save_secrets(s)
+            with open(sec, encoding="utf-8") as f:
+                saved = f.read()
+            self.assertNotIn("abc:def", saved)  # the token stays in .env only
+            self.assertIn("hubbot", saved)
+            self.assertEqual(settings.load_secrets()["telegram_chat_id"], 4242)
+
     def test_quiet_window(self):
         q = {"start": "23:00", "end": "07:00"}
         self.assertTrue(botmod.in_quiet(dt.datetime(2026, 1, 1, 2, 0), q))

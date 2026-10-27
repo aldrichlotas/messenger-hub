@@ -42,6 +42,37 @@ def profile(cfg: dict) -> dict:
     return p
 
 
+ENV_FILE = os.path.join(ROOT, ".env")
+# .env name -> secrets key. A private chat's id is the user's id, so TELEGRAM_USER_ID pairs the bot.
+ENV_SECRETS = {"TELEGRAM_BOT_TOKEN": "telegram_token", "TELEGRAM_USER_ID": "telegram_chat_id"}
+
+
+def read_env(path: str = None) -> dict:
+    """KEY=value lines from .env (spaces around "=" and quotes allowed); real env vars win."""
+    out, path = {}, path or ENV_FILE
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip().removeprefix("export ").strip()
+                out[k] = v.strip().strip("'\"")
+    for k in list(out) + list(ENV_SECRETS):
+        if os.environ.get(k):
+            out[k] = os.environ[k]
+    return out
+
+
+def env_secrets(path: str = None) -> dict:
+    env, out = read_env(path), {}
+    for name, key in ENV_SECRETS.items():
+        if env.get(name):
+            out[key] = int(env[name]) if key == "telegram_chat_id" else env[name]
+    return out
+
+
 def load_secrets() -> dict:
     if os.path.exists(SECRETS):
         with open(SECRETS, encoding="utf-8") as f:
@@ -51,10 +82,16 @@ def load_secrets() -> dict:
     if not data.get("pair_code"):
         data["pair_code"] = f"{random.randint(0, 999999):06d}"
         save_secrets(data)
+    env = env_secrets()
+    data.update(env)
+    data["from_env"] = sorted(env)
     return data
 
 
 def save_secrets(data: dict) -> None:
+    # Values that came from .env stay there; secrets.json keeps only what the app set itself.
+    env = env_secrets()
+    data = {k: v for k, v in data.items() if k != "from_env" and not (k in env and env[k] == v)}
     os.makedirs(os.path.dirname(SECRETS), exist_ok=True)
     with open(SECRETS, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)

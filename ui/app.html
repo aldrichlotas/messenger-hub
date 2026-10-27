@@ -292,14 +292,15 @@ function settingsView() {
   <div>
   <section class="panel">
     <h2>Telegram bot ${tg.paired ? '<span class="chip s2">paired</span>' : ""}</h2>
-    <ol class="steps">
+    ${tg.from_env && tg.from_env.includes("telegram_token") ? `<p class="hint">Bot token${tg.from_env.includes("telegram_chat_id") ? " and your Telegram user id come" : " comes"} from <code>.env</code>${tg.bot_name ? ` (@${esc(tg.bot_name)})` : ""}. Edit that file to change ${tg.from_env.includes("telegram_chat_id") ? "them" : "it"}, then restart the hub.${tg.paired ? " Press Start in the bot's chat once, or Telegram won't let it message you." : ""}</p>` : ""}
+    <ol class="steps" ${tg.from_env && tg.from_env.includes("telegram_token") && tg.paired ? 'hidden' : ""}>
       <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code> and follow the steps. Copy the token it gives you.
         <div class="row" style="margin-top:6px"><input id="tgtoken" type="password" placeholder="${tg.has_token ? "Token saved; paste a new one to replace it" : "Paste the bot token"}" style="flex:1"><button class="small" id="savetoken">Save</button></div>
         ${tg.bot_name ? `<div class="hint">Bot: @${esc(tg.bot_name)}</div>` : ""}</li>
       <li>Send <code>/start ${esc(tg.pair_code || "")}</code> to your bot${tg.bot_name ? ` (@${esc(tg.bot_name)})` : ""}. Only that chat will ever get messages.</li>
     </ol>
     ${tg.error ? `<p class="hint" style="color:var(--danger)">${esc(tg.error)}</p>` : ""}
-    <div class="row"><button class="small" id="tgtest" ${tg.paired ? "" : "disabled"}>Send me today's brief</button>${tg.paired ? `<button class="small ghost" id="tgunpair">Unpair</button>` : ""}</div>
+    <div class="row"><button class="small" id="tgtest" ${tg.paired ? "" : "disabled"}>Send me today's brief</button>${tg.paired && !(tg.from_env || []).includes("telegram_chat_id") ? `<button class="small ghost" id="tgunpair">Unpair</button>` : ""}</div>
     <p class="hint">Telegram gets only what you need to know: org, type, time and a cleaned title (no links, contacts or other people's @mentions). Message text stays on this laptop.</p>
   </section>
   <section class="panel">

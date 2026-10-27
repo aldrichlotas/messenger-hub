@@ -13,6 +13,7 @@ hubos/process.py       ingest data/chats/* into the store, derive entries/mentio
 hubos/bot.py           Telegram bot (pairing, capture, commands) + scheduler (briefs, alerts, quiet hours, cap)
 hubos/app.py + ui/app.html   `hub.py app`: local server, background processor, pywebview window, startup toggle
 data/secrets.json      bot token, paired chat id, pair code (git-ignored with the rest of data/)
+.env                   optional, git-ignored: TELEGRAM_BOT_TOKEN + TELEGRAM_USER_ID override secrets.json (no pairing); TELEGRAM_API_ID/HASH for phase 3
 config_ui.py + ui/index.html   `hub.py config`: local (127.0.0.1) page for picking orgs' chats
 orgs.json              config (git-ignored): {"me", "profile": {names, self_chat, self_slug}, "settings": {briefs, quiet, alerts, ping_cap, detail},
                        "orgs": {key: {name, match, context, outputs, my_title, aliases, committees, above, chats: [{thread, name, slug, enabled}]}}}

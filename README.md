@@ -30,7 +30,9 @@ rest). A date in the note sets its due time; `#ecg` files it under an org; `/win
 an achievement.
 
 **Telegram bot:** create one with @BotFather, paste its token in Settings, then send it
-`/start <code>` (the code is shown in Settings). Briefs arrive at the times you set (default 07:00,
+`/start <code>` (the code is shown in Settings). Or put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_ID`
+(your numeric id, e.g. from @userinfobot) in `.env` and press Start in the bot's chat once; no code
+needed. Briefs arrive at the times you set (default 07:00,
 13:00, 21:00), alerts for meetings in 30 min and things due within 2 h / 24 h, capped per day and
 silent in quiet hours. The bot only shows org, type, time and a cleaned title; message text stays on
 the laptop. Commands: `/today`, `/due`, `/done 12`, `/win …`, `/review`. The laptop must be on (or
