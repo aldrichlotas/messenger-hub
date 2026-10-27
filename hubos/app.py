@@ -267,12 +267,12 @@ class WindowApi:
     """Exposed to the page as window.pywebview.api (window modes need the window's own process)."""
 
     def __init__(self):
-        self.window = None
+        self._window = None  # underscore: pywebview must not walk the window when exposing this object
 
     def set_mode(self, mode: str):
         import webview
 
-        w = self.window
+        w = self._window
         scr = webview.screens[0] if webview.screens else None
         sw, sh = (scr.width, scr.height) if scr else (1920, 1080)
         if mode == "sidebar":
@@ -296,7 +296,7 @@ def open_window(url: str) -> bool:
     except ImportError:
         return False
     api = WindowApi()
-    api.window = webview.create_window("Messenger Hub", url, width=1360, height=880, min_size=(340, 280), js_api=api)
+    api._window = webview.create_window("Messenger Hub", url, width=1360, height=880, min_size=(340, 280), js_api=api)
     webview.start()
     return True
 
