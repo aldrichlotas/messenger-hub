@@ -98,6 +98,10 @@ class Analyse(unittest.TestCase):
         self.assertEqual(f.kind, "task")
         self.assertGreaterEqual(f.confidence, 0.8)
 
+    def test_deadline_date_wins(self):
+        f = self.a("@Aldrich caption for Friday's post, deadline Wednesday")
+        self.assertEqual(f.due.strftime("%a"), "Wed")
+
     def test_general_deadline(self):
         f = self.a("submit your forms by Friday")
         self.assertEqual(f.kind, "deadline")

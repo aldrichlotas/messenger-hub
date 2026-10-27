@@ -294,6 +294,12 @@ def analyse(text: str, ts: dt.datetime, author, is_me: bool, org, prof: Profile,
     if not text or text.startswith("(sticker"):
         return None
     hit = find_date(text, ts)
+    cue = DEADLINE.search(text)
+    if hit and cue:
+        # "caption for Friday's post, deadline Thursday": the date after the deadline word wins.
+        after = find_date(text[cue.start() :], ts)
+        if after:
+            hit = after
     if hit and hit.when < ts - dt.timedelta(hours=12):
         hit = None  # refers to the past
     if strength is None:

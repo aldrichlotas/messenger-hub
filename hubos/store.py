@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS item (
     ts TEXT,
     text TEXT,
     ref TEXT,                        -- "<chat>#<id>"
+    reply_ext TEXT,                  -- ext_id of the message this one replies to
+    reply_to_me INTEGER DEFAULT 0,   -- it replies to one of your messages
     UNIQUE (source, channel, ext_id)
 );
 CREATE TABLE IF NOT EXISTS entry (
@@ -76,6 +78,10 @@ class Store:
         self.db.row_factory = sqlite3.Row
         with _lock:
             self.db.executescript(SCHEMA)
+            cols = {r["name"] for r in self.db.execute("PRAGMA table_info(item)")}
+            for col, decl in (("reply_ext", "TEXT"), ("reply_to_me", "INTEGER DEFAULT 0")):
+                if col not in cols:  # databases made before replies were stored
+                    self.db.execute(f"ALTER TABLE item ADD COLUMN {col} {decl}")
             self.db.commit()
 
     def q(self, sql: str, args=()) -> list:
@@ -108,13 +114,20 @@ class Store:
                 "SELECT id FROM item WHERE source = ? AND channel = ? AND ext_id = ?", (f["source"], f["channel"], str(f["ext_id"]))
             ).fetchone()
             if row:
+                if f.get("reply_ext") or f.get("reply_to_me"):  # fill in reply links on older rows
+                    self.db.execute(
+                        "UPDATE item SET reply_ext = COALESCE(reply_ext, ?), reply_to_me = MAX(reply_to_me, ?) WHERE id = ?",
+                        (f.get("reply_ext"), 1 if f.get("reply_to_me") else 0, row["id"]),
+                    )
+                    self.db.commit()
                 return row["id"], False
             cur = self.db.execute(
-                "INSERT INTO item (source, channel, ext_id, org, chat_name, author, is_me, ts, text, ref)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO item (source, channel, ext_id, org, chat_name, author, is_me, ts, text, ref, reply_ext, reply_to_me)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     f["source"], f["channel"], str(f["ext_id"]), f.get("org"), f.get("chat_name"), f.get("author"),
-                    1 if f.get("is_me") else 0, f.get("ts"), f.get("text"), f.get("ref"),
+                    1 if f.get("is_me") else 0, f.get("ts"), f.get("text"), f.get("ref"), f.get("reply_ext"),
+                    1 if f.get("reply_to_me") else 0,
                 ),
             )
             self.db.commit()

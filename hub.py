@@ -2,7 +2,7 @@
 roadmaps and briefs.
 
     py -3.10 hub.py app                                  the desktop app: today, deadlines, mentions, bot, settings
-    py -3.10 hub.py process [--rescan]                   re-read synced chats with the rules (no tokens)
+    py -3.10 hub.py process [--rescan [--since DATE]]    re-read synced chats with the rules (no tokens)
     py -3.10 hub.py config                               edit orgs and pick their group chats in your browser
     py -3.10 hub.py status                               what's configured, synced and analysed
     py -3.10 hub.py discover [--match ECG]               refresh the list of your chats (opens Messenger)
@@ -460,6 +460,8 @@ def main() -> None:
 
     pr = sub.add_parser("process", help="read synced chats into the local store with the rules (no tokens)")
     pr.add_argument("--rescan", action="store_true", help="re-run the rules over everything")
+    pr.add_argument("--since", help="with --rescan: keep findings from this date (YYYY-MM-DD) open for review")
+
 
     cf = sub.add_parser("config", help="edit orgs and their chats in a local web page")
     cf.add_argument("--no-open", action="store_true", help="don't open the page in your browser")
@@ -537,7 +539,7 @@ def main() -> None:
         from hubos.store import Store
 
         st = Store()
-        print((process.rescan if args.rescan else process.ingest)(st, cfg))
+        print(process.rescan(st, cfg, args.since) if args.rescan else process.ingest(st, cfg))
     elif args.cmd == "config":
         import config_ui
 
