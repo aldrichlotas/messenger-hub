@@ -91,9 +91,10 @@ def clean_config(cfg: dict) -> dict:
     return out
 
 
-def run_discover() -> None:
+def run_discover(find_all: bool = False) -> None:
     with _discovering:
-        subprocess.run([sys.executable, os.path.join(hub.ROOT, "hub.py"), "discover"], cwd=hub.ROOT)
+        cmd = [sys.executable, os.path.join(hub.ROOT, "hub.py"), "discover"]
+        subprocess.run(cmd + ["--all-chats"] if find_all else cmd, cwd=hub.ROOT)
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -129,8 +130,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send(200, state())
             elif self.path == "/api/discover":
                 if not _discovering.locked():
-                    threading.Thread(target=run_discover, daemon=True).start()
+                    threading.Thread(target=run_discover, args=(body.get("all") is True,), daemon=True).start()
                 self.send(200, {"started": True})
+            elif self.path == "/api/discover-stop":
+                if _discovering.locked():
+                    with open(hub.STOP_FILE, "w", encoding="utf-8"):
+                        pass
+                self.send(200, {"stopping": True})
             else:
                 self.send(404, {"error": "not found"})
         except (ValueError, KeyError, TypeError) as e:

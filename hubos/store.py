@@ -9,13 +9,14 @@
     meta     small key/value state (ingest bookmarks...)
 """
 
+import contextlib
 import datetime as dt
 import os
 import sqlite3
 import threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB = os.path.join(ROOT, "data", "hub.db")
+DB = os.environ.get("HUB_DB") or os.path.join(ROOT, "data", "hub.db")  # HUB_DB: a trial copy
 _lock = threading.RLock()
 
 SCHEMA = """
@@ -33,6 +34,8 @@ CREATE TABLE IF NOT EXISTS item (
     ref TEXT,                        -- "<chat>#<id>"
     reply_ext TEXT,                  -- ext_id of the message this one replies to
     reply_to_me INTEGER DEFAULT 0,   -- it replies to one of your messages
+    media TEXT,                      -- JSON [{type, path}]: photos/videos/files saved with the chat export
+    links TEXT,                      -- JSON [url]: links in the message
     UNIQUE (source, channel, ext_id)
 );
 CREATE TABLE IF NOT EXISTS entry (
@@ -67,7 +70,8 @@ CREATE TABLE IF NOT EXISTS conv_state (
     key TEXT PRIMARY KEY,            -- "<channel>#<first message id>" of a conversation
     read_upto TEXT,                  -- pings up to this time are read
     summary TEXT,                    -- optional one-line model summary
-    summary_hash TEXT                -- the conversation's content when it was summarised
+    summary_hash TEXT,               -- the conversation's content when it was summarised
+    done_upto TEXT                   -- you marked the follow-up done when the conversation ended here
 );
 CREATE TABLE IF NOT EXISTS event (kind TEXT, ref TEXT, at TEXT);  -- e.g. "open-source": backreads from the app
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -85,12 +89,37 @@ class Store:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        self._defer = 0  # inside batch(): commit at the end
         with _lock:
             self.db.executescript(SCHEMA)
             cols = {r["name"] for r in self.db.execute("PRAGMA table_info(item)")}
-            for col, decl in (("reply_ext", "TEXT"), ("reply_to_me", "INTEGER DEFAULT 0")):
+            for col, decl in (("reply_ext", "TEXT"), ("reply_to_me", "INTEGER DEFAULT 0"), ("media", "TEXT"), ("links", "TEXT")):
                 if col not in cols:  # databases made before replies were stored
                     self.db.execute(f"ALTER TABLE item ADD COLUMN {col} {decl}")
+            if "done_upto" not in {r["name"] for r in self.db.execute("PRAGMA table_info(conv_state)")}:
+                self.db.execute("ALTER TABLE conv_state ADD COLUMN done_upto TEXT")  # made before follow-ups
+            self.db.commit()
+
+    @contextlib.contextmanager
+    def batch(self):
+        """Many writes, one commit: a first sync of a big chat commits once per chat, not once per message.
+        If it fails nothing is saved: a half-done rescan has already deleted what it was rebuilding."""
+        self._defer += 1
+        try:
+            yield
+        except BaseException:
+            if self._defer == 1:
+                with _lock:
+                    self.db.rollback()
+            raise
+        finally:
+            self._defer -= 1
+            if not self._defer:
+                with _lock:
+                    self.db.commit()
+
+    def _commit(self):
+        if not self._defer:
             self.db.commit()
 
     def q(self, sql: str, args=()) -> list:
@@ -104,7 +133,7 @@ class Store:
     def run(self, sql: str, args=()) -> int:
         with _lock:
             cur = self.db.execute(sql, args)
-            self.db.commit()
+            self._commit()
             return cur.lastrowid
 
     # meta
@@ -123,23 +152,25 @@ class Store:
                 "SELECT id FROM item WHERE source = ? AND channel = ? AND ext_id = ?", (f["source"], f["channel"], str(f["ext_id"]))
             ).fetchone()
             if row:
-                if f.get("reply_ext") or f.get("reply_to_me"):  # fill in reply links on older rows
+                if f.get("reply_ext") or f.get("reply_to_me") or f.get("media") or f.get("links"):
+                    # Fill in what older rows were stored without (reply links, attachments).
                     self.db.execute(
-                        "UPDATE item SET reply_ext = COALESCE(reply_ext, ?), reply_to_me = MAX(reply_to_me, ?) WHERE id = ?",
-                        (f.get("reply_ext"), 1 if f.get("reply_to_me") else 0, row["id"]),
+                        "UPDATE item SET reply_ext = COALESCE(reply_ext, ?), reply_to_me = MAX(reply_to_me, ?),"
+                        " media = COALESCE(media, ?), links = COALESCE(links, ?) WHERE id = ?",
+                        (f.get("reply_ext"), 1 if f.get("reply_to_me") else 0, f.get("media"), f.get("links"), row["id"]),
                     )
-                    self.db.commit()
+                    self._commit()
                 return row["id"], False
             cur = self.db.execute(
-                "INSERT INTO item (source, channel, ext_id, org, chat_name, author, is_me, ts, text, ref, reply_ext, reply_to_me)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO item (source, channel, ext_id, org, chat_name, author, is_me, ts, text, ref, reply_ext, reply_to_me,"
+                " media, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     f["source"], f["channel"], str(f["ext_id"]), f.get("org"), f.get("chat_name"), f.get("author"),
                     1 if f.get("is_me") else 0, f.get("ts"), f.get("text"), f.get("ref"), f.get("reply_ext"),
-                    1 if f.get("reply_to_me") else 0,
+                    1 if f.get("reply_to_me") else 0, f.get("media"), f.get("links"),
                 ),
             )
-            self.db.commit()
+            self._commit()
             return cur.lastrowid, True
 
     # entries
@@ -159,7 +190,7 @@ class Store:
                     f.get("confidence", 0), f.get("reasons"), stamp, stamp,
                 ),
             )
-            self.db.commit()
+            self._commit()
             return cur.lastrowid
 
     def update_entry(self, entry_id: int, **f) -> None:

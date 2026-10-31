@@ -13,7 +13,8 @@ Re-running is incremental. The export remembers its newest message (meta.json "l
 the next run scrolls back only until the chat is older than that message, keeps only what came
 after it, and downloads only the new attachments; nothing already exported is fetched twice.
 meta.json "last_sync" says which message ids the latest run added. --full re-reads the whole
-history. Ctrl+C (or a STOP file) stops scrolling early and still saves what was collected.
+history. Ctrl+C (or a STOP file) stops scrolling early. A chat's first sync saves what was collected;
+a chat already synced saves only if it got back to its bookmark, so there's never a gap in the export.
 
 Output (default data/chats/<chat-name>/, git-ignored): see common.py.
 """
@@ -27,6 +28,7 @@ import os
 import re
 import sys
 import time
+from urllib.parse import urlparse
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,7 +41,22 @@ CHATS = os.path.join(ROOT, "data", "chats")
 STEP_WAIT = 1.6  # seconds between scrolls; slower is gentler on Facebook's rate limits
 IDLE_ROUNDS = 8  # scrolls without new rows before we decide we've hit the start of the chat
 LOGIN_TIMEOUT = 15 * 60
+SETTLE = (1.2, 3)  # seconds a chat gets to finish drawing once its messages appear: at least, at most
+EMPTY_WAIT = 20  # seconds the chat's message list can show no messages before we take it as empty
 STOP_FILE = os.path.join(ROOT, "STOP")  # create this file to stop scrolling and save (see README)
+HUMAN_PATHS = ("/checkpoint", "/login", "/recover", "/two_step_verification", "/two_factor")
+
+
+class Blocked(RuntimeError):
+    """Facebook wants a human: a login, PIN or checkpoint page. Live sync stops here and never retries."""
+
+
+def blocked(page, context) -> str:
+    """Why we must stop: Facebook wants a human. Empty when all is well."""
+    path = urlparse(page.url).path
+    if any(p in path for p in HUMAN_PATHS):
+        return path
+    return "" if any(c["name"] == "c_user" for c in context.cookies()) else "logged out"
 
 
 def thread_url(arg: str) -> str:
@@ -167,20 +184,43 @@ def download_attachments(context, messages: list, out_dir: str) -> None:
             print(f"  ! {a['type']} failed: {e}")
 
 
-def wait_for_chat(context, page, url: str):
+def wait_for_chat(context, page, url: str, patience: float = LOGIN_TIMEOUT, strict: bool = False):
     """Wait until the conversation is on screen. Survives the page navigating during login, and
-    sends the browser back to the chat if Facebook lands on the home page after logging in."""
-    deadline = time.time() + LOGIN_TIMEOUT
+    sends the browser back to the chat if Facebook lands on the home page after logging in.
+    A chat nobody has written in yet shows its message list with no messages: after EMPTY_WAIT
+    seconds of that it counts as loaded, and the sync stores it as empty.
+    strict (live sync) keeps to the page it was given, and raises Blocked at a login or checkpoint
+    page instead of waiting there for someone at the desk."""
+    deadline = time.time() + patience
     told = sent_back = False
+    empty_since = None
+    thread_id = url.rstrip("/").split("/")[-1]
     while time.time() < deadline:
-        page = context.pages[-1] if context.pages else page
+        if strict:
+            why = blocked(page, context)
+            if why:
+                raise Blocked(why)
+        else:
+            if os.path.exists(STOP_FILE):
+                raise RuntimeError("stopped while waiting for the chat")
+            page = context.pages[-1] if context.pages else page
         try:
-            if page.evaluate("!!document.querySelector('[role=\"log\"] [role=\"article\"]')"):
+            state = page.evaluate(
+                "document.querySelector('[role=\"log\"] [role=\"article\"]') ? 'messages'"
+                " : document.querySelector('[role=\"log\"]') ? 'list' : 'none'"
+            )
+            if state == "messages":
                 return page
+            if state == "list" and thread_id in page.url:
+                empty_since = empty_since or time.time()
+                if time.time() - empty_since >= EMPTY_WAIT:
+                    print("No messages in this chat yet.")
+                    return page
+            else:
+                empty_since = None
         except Exception:
             pass  # the page navigated mid-check (login redirect); look again next tick
         logged_in = any(c["name"] == "c_user" for c in context.cookies())
-        thread_id = url.rstrip("/").split("/")[-1]
         if logged_in and thread_id not in page.url and not sent_back:
             time.sleep(3)
             try:
@@ -193,7 +233,20 @@ def wait_for_chat(context, page, url: str):
             print("complete it in the browser window (and open the chat if it doesn't open by itself).")
             told = True
         time.sleep(2)
-    sys.exit("Timed out waiting for the conversation.")
+    # Not sys.exit: `hub.py sync` catches this and goes on to the next chat.
+    raise RuntimeError("Timed out waiting for the conversation.")
+
+
+def settle(page, least: float = SETTLE[0], most: float = SETTLE[1], step: float = 0.3) -> None:
+    """Wait until the message list stops growing. Messenger can draw from its cache, then add what's new."""
+    started, last = time.time(), None
+    while True:
+        count = page.evaluate("document.querySelectorAll('[role=\"log\"] [role=\"article\"]').length")
+        waited = time.time() - started
+        if (count == last and waited >= least) or waited >= most:
+            return
+        last = count
+        time.sleep(step)
 
 
 def save_rows(out_dir: str, rows: list, now: dt.datetime) -> None:
@@ -248,13 +301,13 @@ def rebuild(args) -> None:
     print(f"Rebuilt {len(messages)} messages -> {out_dir}")
 
 
-def launch(p):
+def launch(p, minimized: bool = False):
     """Open the persistent Chromium profile (headed: Facebook login and PIN prompts need a human)."""
     return p.chromium.launch_persistent_context(
         PROFILE,
         headless=False,
         viewport=None,
-        args=["--disable-blink-features=AutomationControlled", "--start-maximized"],
+        args=["--disable-blink-features=AutomationControlled", "--start-minimized" if minimized else "--start-maximized"],
     )
 
 
@@ -268,17 +321,21 @@ def scrape_thread(
     no_download: bool = False,
     max_minutes: float = 60,
     debug: bool = False,
+    page=None,
+    patience: float = LOGIN_TIMEOUT,
+    strict: bool = False,
 ) -> dict:
-    """Sync one conversation into out_dir (default data/chats/<title slug>). Returns a summary."""
+    """Sync one conversation into out_dir (default data/chats/<title slug>). Returns a summary.
+    page, patience and strict are for live sync: a tab of its own, a short wait, no waiting at a login page."""
     since_dt = dt.datetime.fromisoformat(since) if since else None
     now = dt.datetime.now()
     with open(os.path.join(HERE, "extract.js"), encoding="utf-8") as f:
         script = f.read()
 
-    page = context.pages[0] if context.pages else context.new_page()
+    page = page or (context.pages[0] if context.pages else context.new_page())
     page.goto(thread_url(thread), wait_until="domcontentloaded")
-    page = wait_for_chat(context, page, thread_url(thread))
-    time.sleep(3)
+    page = wait_for_chat(context, page, thread_url(thread), patience, strict)
+    settle(page)
     page.evaluate(script)
     title = page.evaluate("window.__hsx.title()")
     out_dir = out_dir or os.path.join(CHATS, common.slugify(title))
@@ -290,22 +347,22 @@ def scrape_thread(
     if mark:
         print(f"Last exported: #{mark['id']} {mark['ts']} {mark.get('sender')}; fetching only newer messages.")
 
-    if os.path.exists(STOP_FILE):
-        os.remove(STOP_FILE)
     print(f"To stop early and keep what's collected: create {STOP_FILE} (or press Ctrl+C here).")
-    started, idle, last_height = time.time(), 0, None
+    started, idle, last_height, gave_up = time.time(), 0, None, None
     try:
         for n in range(1, 100_000):
             res = page.evaluate("window.__hsx.step()")
             if not res.get("ok"):
+                if existing:
+                    raise RuntimeError(res.get("reason"))
                 print("!", res.get("reason"))
                 break
             grew = res["scrollHeight"] != last_height
             idle = 0 if (res["added"] or grew) else idle + 1
             last_height = res["scrollHeight"]
-            if os.path.exists(STOP_FILE):
-                os.remove(STOP_FILE)
-                print("Stop requested; saving what was collected.")
+            if os.path.exists(STOP_FILE):  # left in place: the caller's other chats stop too
+                print("Stop requested.")
+                gave_up = "stopped"
                 break
             if n % 5 == 0:
                 head = to_messages(page.evaluate("window.__hsx.dump()")[:40], me, now)
@@ -313,9 +370,6 @@ def scrape_thread(
                 print(f"  scroll {n}: {res['total']} items, back to {oldest}")
             if idle >= IDLE_ROUNDS:
                 print("Reached the start of the conversation.")
-                break
-            if time.time() - started > max_minutes * 60:
-                print("Time limit reached; saving what was collected.")
                 break
             if (known or since_dt) and (n == 1 or n % 2 == 0):
                 oldest = to_messages(page.evaluate("window.__hsx.dump()")[:60], me, now)
@@ -330,11 +384,20 @@ def scrape_thread(
                 if since_dt and any(m["ts"] and m["ts"] < since_dt.isoformat() for m in msgs):
                     print(f"Reached {since}.")
                     break
+            if time.time() - started > max_minutes * 60:
+                print("Time limit reached.")
+                gave_up = "limit"
+                break
             page.evaluate("window.__hsx.scrollUp()")
             time.sleep(STEP_WAIT)
     except KeyboardInterrupt:
-        print("Stopped by user; saving what was collected.")
+        print("Stopped by user.")
+        gave_up = "stopped"
 
+    if gave_up and existing:
+        # Only the newest part is loaded: saving it would move the bookmark past the messages in between.
+        print("Didn't reach the last exported message: nothing saved, the next sync reads this chat again.")
+        return {"title": title, "out_dir": out_dir, "added": 0, "total": len(existing), "dropped": gave_up}
     page.evaluate("window.__hsx.step()")
     rows = page.evaluate("window.__hsx.dump()")
     os.makedirs(out_dir, exist_ok=True)
@@ -393,6 +456,8 @@ def main() -> None:
 
     with sync_playwright() as p:
         context = launch(p)
+        if os.path.exists(STOP_FILE):
+            os.remove(STOP_FILE)
         res = scrape_thread(
             context,
             args.thread,

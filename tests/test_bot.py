@@ -76,6 +76,36 @@ class BotTests(unittest.TestCase):
         self.assertIn("@Aldrich", out)
         self.assertNotIn("send", botmod.line(e, NOW, "minimal", ["Aldrich"]))
 
+    def test_org_style_titles_dont_leak(self):
+        """ECG/IMES-style titles (made-up): plain first names, long @mentions, links without https, PH numbers."""
+        for i, who in enumerate(["Maria Concepcion Dela Cruz", "Bea Santos", "Sam Reyes", "Ñiño Gómez", "Jo", "Aldrich"]):
+            self.st.add_item(source="messenger", channel="c", ext_id=i, author=who, is_me=who == "Aldrich", ts="2026-10-27T07:00", text="x")
+        others = botmod.people(self.st, ["Aldrich"])
+        self.assertNotIn("Aldrich", others)
+        cases = {
+            "@Maria Concepcion Dela Cruz pa-check ng pubmat bukas": ["Maria", "Dela", "Cruz"],
+            "Bea pa-send ng caption sa drive mamaya": ["Bea"],
+            "[ECG] Sam Reyes: upload sa https://drive.google.com/x": ["Sam", "Reyes", "drive.google"],
+            "Ñiño and Jo review the reels": ["Ñiño", "Jo "],
+            "submit at forms.gle/AbC123 or bit.ly/ga-slides": ["forms.gle", "bit.ly", "AbC123"],
+            "register www.ecg-dlsu.org/ga or ecg.org.ph": ["ecg-dlsu", "ecg.org"],
+            "DM fb.me/someone or m.me/someone": ["fb.me", "m.me", "someone"],
+            "call 0917.123.4567, 0917 123 4567 or +63 917-123-4567": ["0917", "917", "4567"],
+            "email pubs@example.org the layout": ["pubs", "ecg.org"],
+        }
+        for title, bad in cases.items():
+            e = {"id": 1, "kind": "task", "org": "imes", "origin": "rule", "due": None, "due_has_time": 0, "title": title}
+            out = botmod.line(e, NOW, "short", ["Aldrich"], others)
+            for b in bad:
+                self.assertNotIn(b, out, title)
+        e = {"id": 2, "kind": "task", "org": "ecg", "origin": "rule", "due": None, "due_has_time": 0,
+             "title": "@Aldrich Lotas pa-check ng GA pubmat bukas"}
+        self.assertIn("@Aldrich Lotas pa-check ng GA pubmat", botmod.line(e, NOW, "short", ["Aldrich"], others), "my own mention and the task stay")
+        # the bot's own replies go through the same cleaning
+        self.bot.handle(42, "remind Bea re: forms.gle/x bukas 5pm #ecg")
+        self.assertNotIn("Bea", self.bot.out[-1])
+        self.assertNotIn("forms.gle", self.bot.out[-1])
+
     def test_pairing_and_commands(self):
         b = FakeBot(self.st, {"telegram_token": "x", "pair_code": "654321"})
         with mock.patch.object(settings, "save_secrets"):

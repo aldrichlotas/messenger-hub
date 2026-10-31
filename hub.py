@@ -39,7 +39,23 @@ CHATS = os.path.join(DATA, "chats")
 ORGS = os.path.join(DATA, "orgs")
 CHAT_LIST = os.path.join(DATA, "chat-list.json")
 PROMPT = os.path.join(ROOT, "prompts", "analyze.md")
-DISCOVER_ROUNDS = 40
+DISCOVER_ROUNDS = 1500  # screens of chat list, at most; it normally stops at the end well before this
+LIST_END_ROUNDS = 8  # screens at the bottom with nothing new: Messenger has no more chats to load
+LIST_STUCK_ROUNDS = 25  # screens with nothing new anywhere: the list isn't loading
+LIST_STATE = os.path.join(DATA, "list-state.json")  # each row's last signature, for skipping chats that haven't changed
+SKIP_ROUNDS = 40  # screens of chat list a sync reads before it stops looking
+SKIP_SAME_ROWS = 5  # unchanged rows in a row: the list is newest first, so nothing below them changed either
+SKIP_IDLE_ROUNDS = 6  # screens at the bottom with no new rows: the list has ended
+SKIP_STUCK_ROUNDS = 20  # screens anywhere with no new rows: it isn't loading. A few slow seconds are normal
+NOTES_DAYS = 30  # how far back the first sync of your notes-to-self chat reads
+SKIP_HOURS = 24  # a chat is opened at least this often, whatever the list says
+BOLD = 600  # font weight that means unread (as in hubos/live.py)
+STOP_FILE = os.path.join(ROOT, "STOP")  # create this file to stop a sync or refresh and keep what it has
+LIST_QUIET_DAYS = 365  # a normal refresh stops at chats this quiet; `discover --all-chats` keeps going
+LIST_QUIET_ROWS = 5  # this many quiet rows in a row: one odd row isn't the end of the active chats
+SPAN_DAYS = {"h": 0, "hr": 0, "d": 1, "day": 1, "w": 7, "wk": 7, "week": 7, "mo": 30, "mon": 30, "month": 30, "y": 365, "yr": 365, "year": 365}
+AGE_SPAN = re.compile(r"^(\d{1,4})\s*(mo|mon|months?|y|yrs?|years?|w|wks?|weeks?|d|days?|h|hrs?|hours?)(?:\s+ago)?$", re.I)
+AGE_YEAR = re.compile(r"^[A-Za-z]{3,9}\.? \d{1,2}, (\d{4})$")
 CLAUDE_TOOLS = "Read,Write,Edit,Glob,Grep"
 UI_PORT = 8765
 # Sidebar lines that aren't the chat's name.
@@ -130,11 +146,89 @@ def label(c: dict) -> str:
     return f"{c['community']} › {c['name']}" if c.get("community") else c["name"]
 
 
+def clear_stop() -> None:
+    if os.path.exists(STOP_FILE):
+        os.remove(STOP_FILE)
+
+
 def chat_dir(chat: dict):
     return os.path.join(CHATS, chat["slug"]) if chat.get("slug") else None
 
 
 # --- browser commands ---------------------------------------------------------------------------
+
+
+def age_days(lines: list, today: dt.date = None):
+    """How long ago a chat list row was active, from its time label ("3d", "2y", "· 52w", "Oct 12, 2024").
+    None when the row has no label we can read: it then neither ends a refresh nor keeps it going."""
+    today = today or dt.date.today()
+    for line in reversed(lines):
+        label = line.rsplit("·", 1)[-1].strip()
+        if "·" not in line and len(line.split()) > 3:
+            continue  # a preview, not a label
+        m = AGE_SPAN.match(label)
+        if m:
+            unit = m.group(2).lower().rstrip("s")
+            return int(m.group(1)) * SPAN_DAYS[unit]
+        m = AGE_YEAR.match(label)
+        if m:
+            return (today - dt.date(int(m.group(1)), 12, 31)).days
+    return None
+
+
+def quiet_rows(chats: list, today: dt.date = None) -> int:
+    """How many of the last rows read, in a row, are past LIST_QUIET_DAYS. Rows without a label don't count either way."""
+    n = 0
+    for c in reversed(chats):
+        age = age_days(c.get("lines") or [], today)
+        if age is None:
+            continue
+        if age < LIST_QUIET_DAYS:
+            break
+        n += 1
+    return n
+
+
+def read_chat_list(page, rounds: int = DISCOVER_ROUNDS, pause: float = 1.2, find_all: bool = False) -> list:
+    """Walk the chat list a screen at a time, with discover.js already on the page. It's newest first,
+    so it stops once it reaches chats quiet for a year, or at the end with find_all. Closing the
+    browser window part-way keeps what was read up to then."""
+    chats = []
+    try:
+        return walk_chat_list(page, rounds, pause, find_all, chats)
+    except Exception as e:  # Playwright's "target closed": the page is gone, so use our own copy
+        print(f"The browser went away ({type(e).__name__}), keeping the {len(chats)} chats read so far.")
+        return chats
+
+
+def walk_chat_list(page, rounds: int, pause: float, find_all: bool, chats: list) -> list:
+    last, idle = 0, 0
+    for n in range(1, rounds + 1):
+        count = page.evaluate("window.__hsd.collect()")
+        chats[:] = page.evaluate("window.__hsd.list()")
+        if os.path.exists(STOP_FILE):
+            os.remove(STOP_FILE)
+            print(f"Stopped at your request, keeping the {count} chats read so far.")
+            break
+        idle = 0 if count > last else idle + 1
+        if count > last and n % 10 == 0:
+            print(f"  {count} chats so far...")
+        last = count
+        if not find_all and quiet_rows(chats) >= LIST_QUIET_ROWS:
+            print(f"Stopped at chats quiet for over a year. To go further: `discover --all-chats`, or Find all chats on the config page.")
+            break
+        at = page.evaluate("window.__hsd.step()")
+        if (at["end"] and idle >= LIST_END_ROUNDS) or idle >= LIST_STUCK_ROUNDS:
+            break
+        time.sleep(pause)
+    return page.evaluate("window.__hsd.list()")
+
+
+def merge_chat_lists(found: list, known: list) -> list:
+    """What this refresh found, then what earlier ones found and this one didn't: a refresh cut short
+    can't shrink the list, and a chat you once saw stays pickable."""
+    ids = {c["id"] for c in found}
+    return found + [c for c in known if c["id"] not in ids]
 
 
 def discover(cfg: dict, args) -> None:
@@ -144,13 +238,20 @@ def discover(cfg: dict, args) -> None:
 
     with open(os.path.join(ROOT, "messenger", "discover.js"), encoding="utf-8") as f:
         script = f.read()
+    if os.path.exists(STOP_FILE):
+        os.remove(STOP_FILE)
+    found = None
     with sync_playwright() as p:
         context = scrape.launch(p)
         page = context.pages[0] if context.pages else context.new_page()
-        page.goto("https://www.facebook.com/messages/", wait_until="domcontentloaded")
+        page.goto("https://www.facebook.com/messages/new/", wait_until="domcontentloaded")  # opens no chat
         deadline = time.time() + scrape.LOGIN_TIMEOUT
         told = False
         while time.time() < deadline:
+            if os.path.exists(STOP_FILE):  # stopped before the list even showed: nothing to keep
+                os.remove(STOP_FILE)
+                found = []
+                break
             page = context.pages[-1]
             try:
                 page.evaluate(script)
@@ -162,22 +263,23 @@ def discover(cfg: dict, args) -> None:
                 print("Waiting for your chat list. Log in / enter your PIN in the browser window if asked.")
                 told = True
             time.sleep(2)
-        time.sleep(2)
-        last, idle = 0, 0
-        for _ in range(args.rounds):
-            count = page.evaluate("window.__hsd.collect()")
-            idle = idle + 1 if count == last else 0
-            last = count
-            if idle >= 4 or not page.evaluate("window.__hsd.scrollDown()"):
-                break
-            time.sleep(1.5)
-        chats = page.evaluate("window.__hsd.list()")
-        context.close()
+        if found is None:
+            time.sleep(2)
+            found = read_chat_list(page, args.rounds, find_all=args.all_chats)
+        try:
+            context.close()
+        except Exception:  # you closed the window yourself
+            pass
 
+    known = []
+    if os.path.exists(CHAT_LIST):
+        with open(CHAT_LIST, encoding="utf-8") as f:
+            known = json.load(f)["chats"]
+    chats = merge_chat_lists(found, known)
     os.makedirs(DATA, exist_ok=True)
     with open(CHAT_LIST, "w", encoding="utf-8") as f:
         json.dump({"at": dt.datetime.now().isoformat(timespec="seconds"), "chats": chats}, f, ensure_ascii=False, indent=1)
-    print(f"Found {len(chats)} chats (saved to {os.path.relpath(CHAT_LIST, ROOT)}).")
+    print(f"Found {len(found)} chats, {len(chats) - len(found)} more kept from earlier (saved to {os.path.relpath(CHAT_LIST, ROOT)}).")
 
     # Only lists them. Choosing which chats belong to an org is up to you: `hub.py config`,
     # `chat add`, or `discover --add` to add every chat matching an org's --match.
@@ -201,11 +303,99 @@ def discover(cfg: dict, args) -> None:
         print("Nothing was added. Pick chats with `py -3.10 hub.py config`.")
 
 
-def sync(cfg: dict, keys: list, args) -> None:
-    from playwright.sync_api import sync_playwright
+def load_list_state() -> dict:
+    state = {"rows": {}, "opened": {}, "tries": {}}
+    if os.path.exists(LIST_STATE):
+        with open(LIST_STATE, encoding="utf-8") as f:
+            state.update(json.load(f))
+    return state
 
-    import scrape
 
+def save_list_state(state: dict) -> None:
+    os.makedirs(DATA, exist_ok=True)
+    with open(LIST_STATE, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=0)
+
+
+def row_moved(row: dict, known: dict) -> bool:
+    """Has this chat changed since its row was last noted? Reading a chat elsewhere (bold to plain) doesn't count."""
+    return not known or known["sig"] != row["sig"] or (row["weight"] >= BOLD > known["weight"])
+
+
+def read_rows(page, want: set, known: dict, rounds: int = SKIP_ROUNDS, pause: float = 0.6) -> dict:
+    """The chat list from the top, with watch.js and discover.js on the page: {id: row}. Newest first, so it
+    can stop at a run of unchanged rows, or once it has seen every chat it wants."""
+    rows, same, idle = {}, 0, 0
+    for _ in range(rounds):
+        fresh = [r for r in page.evaluate("window.__hsw.drain().rows") if r["id"] not in rows]
+        for r in fresh:
+            rows[r["id"]] = r
+            same = 0 if row_moved(r, known.get(r["id"])) else same + 1
+        idle = 0 if fresh else idle + 1
+        if same >= SKIP_SAME_ROWS or want <= set(rows) or idle >= SKIP_STUCK_ROUNDS or os.path.exists(STOP_FILE):
+            break
+        at = page.evaluate("window.__hsd.step()")
+        if at["end"] and idle >= SKIP_IDLE_ROUNDS:
+            break
+        time.sleep(pause)
+    return rows
+
+
+def pick_changed(chats: list, rows: dict, state: dict, now: dt.datetime, every_chat: bool = False) -> list:
+    """Which chats to open. Left out: a chat opened recently whose row is unchanged, or that sits below the
+    unchanged rows, even if its row has never been read: the list is newest first, so a new message
+    would have brought it up. Anything else in doubt gets opened."""
+    if every_chat or not rows:
+        return chats
+    oldest = (now - dt.timedelta(hours=SKIP_HOURS)).isoformat(timespec="seconds")
+    out = []
+    for c in chats:
+        tid = thread_id(c["thread"])
+        if state["opened"].get(tid, "") < oldest or (tid in rows and row_moved(rows[tid], state["rows"].get(tid))):
+            out.append(c)
+    return out
+
+
+def note_opened(state: dict, tid: str, row: dict, added: int, now: dt.datetime) -> None:
+    """After a chat synced. A changed row with nothing new may mean the page was behind the list, so that
+    chat gets one more look next sync before its row counts as seen. A reaction also lands here: it costs one extra open."""
+    state["opened"][tid] = now.isoformat(timespec="seconds")
+    if not row:
+        return
+    moved = row_moved(row, state["rows"].get(tid)) and tid in state["rows"]
+    if moved and not added and state["tries"].get(tid) != row["sig"]:
+        state["tries"][tid] = row["sig"]
+        return
+    state["tries"].pop(tid, None)
+    state["rows"][tid] = {"sig": row["sig"], "weight": row["weight"]}
+
+
+def note_other_rows(state: dict, rows: dict, chats: list) -> None:
+    """Rows of chats this sync doesn't cover still mark where unchanged rows begin next time."""
+    mine = {thread_id(c["thread"]) for c in chats}
+    for tid, r in rows.items():
+        if tid not in mine:
+            state["rows"][tid] = {"sig": r["sig"], "weight": r["weight"]}
+
+
+def look_at_list(context, chats: list, state: dict) -> dict:
+    """Read the chat list without opening a chat. Empty on any trouble, which makes the sync open every chat."""
+    import probe
+
+    try:
+        page = context.pages[0] if context.pages else context.new_page()
+        page.goto(probe.START_URL, wait_until="domcontentloaded")
+        page = probe.wait_for_list(context, page)
+        with open(os.path.join(ROOT, "messenger", "discover.js"), encoding="utf-8") as f:
+            page.evaluate(f.read())
+        return read_rows(page, {thread_id(c["thread"]) for c in chats}, state["rows"])
+    except (Exception, SystemExit) as e:
+        print(f"! Couldn't read the chat list ({type(e).__name__}): opening every chat.")
+        return {}
+
+
+def sync_targets(cfg: dict, keys: list) -> list:
+    """The chats a sync visits: each enabled chat once, plus your notes-to-self thread."""
     chats, seen = [], set()
     for k in keys:
         for c in active(cfg["orgs"][k]["chats"]):
@@ -215,21 +405,61 @@ def sync(cfg: dict, keys: list, args) -> None:
                 chats.append(c)
     me_chat = (cfg.get("profile") or {}).get("self_chat")
     if me_chat and thread_id(me_chat) not in seen:
-        # Your notes-to-self thread: the capture inbox, synced with every run.
-        chats.append({"thread": me_chat, "name": "Notes to self", "slug": (cfg.get("profile") or {}).get("self_slug")})
+        # Your notes-to-self thread: the capture inbox, synced with every run. Every message there
+        # becomes a note, so its first sync reads back NOTES_DAYS, not to the start of the chat.
+        slug = (cfg.get("profile") or {}).get("self_slug")
+        since = None if slug else (dt.date.today() - dt.timedelta(days=NOTES_DAYS)).isoformat()
+        chats.append({"thread": me_chat, "name": "Notes to self", "slug": slug, "since": since})
+    return chats
+
+
+def record_chat(cfg: dict, c: dict, res: dict) -> None:
+    """Remember a synced chat's folder and title, on the file as it is now: a sync's cfg is
+    minutes old, and saving that would undo any setting changed in the app meanwhile."""
+    slug = os.path.basename(res["out_dir"])
+    fresh = load_config()
+    for one in (cfg, fresh):
+        me_chat = (one.get("profile") or {}).get("self_chat")
+        if me_chat and thread_id(c["thread"]) == thread_id(me_chat):
+            one.setdefault("profile", {})["self_slug"] = slug
+        # The same chat may be listed in several orgs: record its slug everywhere.
+        for o in one["orgs"].values():
+            for oc in o["chats"]:
+                if thread_id(oc["thread"]) == thread_id(c["thread"]):
+                    oc["slug"] = oc.get("slug") or slug
+                    oc["name"] = oc.get("name") or res["title"]
+    save_config(fresh)
+
+
+def sync(cfg: dict, keys: list, args) -> None:
+    from playwright.sync_api import sync_playwright
+
+    import scrape
+
+    chats = sync_targets(cfg, keys)
     if not chats:
         sys.exit("These orgs have no enabled chats: pick some with `hub.py config` or `chat add`.")
+    state = load_list_state()
     with sync_playwright() as p:
         context = scrape.launch(p)
-        for n, c in enumerate(chats, 1):
-            print(f"\n=== [{n}/{len(chats)}] {c.get('name') or c['thread']}")
+        rows = look_at_list(context, chats, state)
+        now = dt.datetime.now()
+        todo = pick_changed(chats, rows, state, now, args.every_chat)
+        if rows:
+            print(f"Chat list read: opening {len(todo)} of {len(chats)} chats.")
+        note_other_rows(state, rows, chats)
+        for n, c in enumerate(todo, 1):
+            if os.path.exists(STOP_FILE):
+                print(f"Stopped at your request. Chats not opened: {len(todo) - n + 1}; the next sync gets them.")
+                break
+            print(f"\n=== [{n}/{len(todo)}] {c.get('name') or c['thread']}")
             try:
                 res = scrape.scrape_thread(
                     context,
                     c["thread"],
                     out_dir=chat_dir(c),
                     me=cfg["me"],
-                    since=args.since,
+                    since=args.since or c.get("since"),
                     no_download=args.no_download,
                     max_minutes=args.max_minutes,
                     debug=args.debug,
@@ -237,17 +467,15 @@ def sync(cfg: dict, keys: list, args) -> None:
             except Exception as e:  # one broken chat shouldn't stop the rest
                 print(f"! failed: {e}")
                 continue
-            slug = os.path.basename(res["out_dir"])
-            if me_chat and thread_id(c["thread"]) == thread_id(me_chat):
-                cfg.setdefault("profile", {})["self_slug"] = slug
-            # The same chat may be listed in several orgs: record its slug everywhere.
-            for o in cfg["orgs"].values():
-                for oc in o["chats"]:
-                    if thread_id(oc["thread"]) == thread_id(c["thread"]):
-                        oc["slug"] = oc.get("slug") or slug
-                        oc["name"] = oc.get("name") or res["title"]
-            save_config(cfg)
+            if res.get("dropped"):  # counts as not opened, so the next sync reads it again
+                continue
+            record_chat(cfg, c, res)
+            tid = thread_id(c["thread"])
+            note_opened(state, tid, rows.get(tid), res["added"], dt.datetime.now())
+            save_list_state(state)
+        save_list_state(state)
         context.close()
+    clear_stop()
 
 
 # --- analysis -----------------------------------------------------------------------------------
@@ -463,9 +691,16 @@ def main() -> None:
     pr.add_argument("--rescan", action="store_true", help="re-run the rules over everything")
     pr.add_argument("--since", help="with --rescan: keep findings from this date (YYYY-MM-DD) open for review")
 
+    va = sub.add_parser("vault", help="rebuild the Obsidian notes from the store (no tokens, no browser)")
+    va.add_argument("--out", help="the generated folder (default: Hub in your Obsidian vault)")
+
     th = sub.add_parser("threads", help="check how chats split into conversations and the mention cards (no tokens)")
     th.add_argument("--report", action="store_true", help="print the checks and write 10 sample cards (default)")
     th.add_argument("--samples", type=int, default=10)
+    th.add_argument("--review", action="store_true", help="write what Home hides to data/reports/answered-review.csv for you to label")
+    th.add_argument("--score", action="store_true", help="how often hiding was right, from your labels in that file")
+    th.add_argument("--org", help="with --review/--score/--sample: one org, in its own files")
+    th.add_argument("--sample", action="store_true", help="with --org: 50 random messages naming you, for you to label for_me y/n")
 
     cf = sub.add_parser("config", help="edit orgs and their chats in a local web page")
     cf.add_argument("--no-open", action="store_true", help="don't open the page in your browser")
@@ -476,10 +711,15 @@ def main() -> None:
     c.add_argument("thread", help="https://www.facebook.com/messages/t/<id> (or e2ee/t/<id>) or the id")
     c.add_argument("--name")
 
+    lv = sub.add_parser("live", help="live sync: delay, chats opened per day, checkpoints (no browser)")
+    lv.add_argument("--days", type=int, default=7, help="how far back the report goes")
+    lv.add_argument("--audit", action="store_true", help="ask the running app to compare the last 24 hours against a separate full read")
+
     d = sub.add_parser("discover", help="list the chats in your Messenger sidebar (opens the browser)")
     d.add_argument("--match", help="only show chats whose name matches this regex")
     d.add_argument("--add", action="store_true", help="also add every chat matching an org's --match to it")
     d.add_argument("--rounds", type=int, default=DISCOVER_ROUNDS, help="how far to scroll the chat list")
+    d.add_argument("--all-chats", action="store_true", help="keep going past chats quiet for over a year, to the end of the list")
 
     for name, hlp in (("sync", "scrape new messages"), ("analyze", "update reports"), ("run", "sync then analyze")):
         s = sub.add_parser(name, help=hlp)
@@ -489,6 +729,7 @@ def main() -> None:
             s.add_argument("--since", help="how far back a chat's first sync goes (YYYY-MM-DD)")
             s.add_argument("--no-download", action="store_true")
             s.add_argument("--max-minutes", type=float, default=30, help="per chat")
+            s.add_argument("--every-chat", action="store_true", help="open every chat, not just those the chat list shows as changed")
             s.add_argument("--debug", action="store_true")
         if name in ("analyze", "run"):
             s.add_argument("--model", help="Claude model for the analysis (default: your Claude Code default)")
@@ -544,13 +785,39 @@ def main() -> None:
 
         st = Store()
         print(process.rescan(st, cfg, args.since) if args.rescan else process.ingest(st, cfg))
+    elif args.cmd == "vault":
+        from hubos import vault
+        from hubos.store import Store
+
+        print(vault.build(Store(), cfg, args.out or vault.OUT))
     elif args.cmd == "threads":
         from hubos import process, threads
         from hubos.store import Store
 
-        r = threads.report(Store(), process.channels(cfg), process.profile(cfg), cfg.get("me") or "me", args.samples)
+        st, chans, prof = Store(), process.channels(cfg), process.profile(cfg)
+        if args.review or args.score or args.sample:
+            all_cards = threads.cards(st, chans, prof)
+            if args.review:
+                path, n, done = threads.answered_review(all_cards, args.org)
+                print(f"{n} hidden cards in {path} ({done} already labelled). Verdict: done, open, followup or someone-else.")
+            if args.sample:
+                if not args.org:
+                    sys.exit("--sample needs --org")
+                path, n, total = threads.mention_sample(st, all_cards, prof, args.org)
+                print(f"{n} of {total} messages naming you in {path}. Fill in for_me: y (meant for me) or n.")
+            r = {}
+            if args.score:
+                r = threads.answered_score(all_cards, args.org)
+                if args.org:
+                    r.update({"mentions_" + k: v for k, v in threads.mention_score(all_cards, args.org).items()})
+        else:
+            r = threads.report(st, chans, prof, cfg.get("me") or "me", args.samples)
         for k, v in r.items():
             print(f"{k:28} {v}")
+    elif args.cmd == "live":
+        from hubos import live
+
+        print(live.ask_audit() if args.audit else json.dumps(live.report(args.days), indent=1))
     elif args.cmd == "config":
         import config_ui
 

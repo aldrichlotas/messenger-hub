@@ -132,8 +132,8 @@ next brief adds one gentle line. Nothing more.
 ## 8. The laptop app
 
 - A **desktop window that starts with Windows** (pywebview: a native window around the local web UI,
-  using Windows' built-in Edge WebView2), plus a tray icon. **Sidebar mode** (narrow, docked right,
-  always on top) and **widget mode** (small floating card) are toggles.
+  using Windows' built-in Edge WebView2), plus a tray icon. A **floating bar** (a frameless strip, always on top, with sync status and the next
+  thing) replaces the sidebar and widget modes, which were dropped on 2026-10-31.
 - Layout:
   - top: **Today** (timeline: classes, meetings, due) and **Projects**, side by side
   - then **Week** (calendar shaded by load)

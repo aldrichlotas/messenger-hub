@@ -6,10 +6,16 @@
 <title>Messenger Hub</title>
 <style>
   :root {
-    --bg: #f4f5f8; --panel: #ffffff; --ink: #1b2130; --muted: #6a7386; --line: #e1e4ea;
-    --accent: #2f6fed; --accent-ink: #fff; --accent-soft: #e8effd;
-    --ok: #1e8e5a; --ok-soft: #e4f5ec; --warn: #b26a00; --warn-soft: #fdf1df; --danger: #c23b3b; --danger-soft: #fbe7e7;
-    --chip: #eef0f4;
+    --bg: #f4f5f8; --panel: #ffffff; --ink: #1b2130; --muted: #596173; --line: #e1e4ea;
+    --accent: #2459c9; --accent-ink: #fff; --accent-soft: #e8effd;
+    --ok: #187a4c; --ok-soft: #e4f5ec; --warn: #8a5200; --warn-soft: #fdf1df; --danger: #c23b3b; --danger-soft: #fbe7e7;
+    --chip: #eef0f4; --danger-ink: #fff;
+    --scroll: #8a91a0;  /* scrollbar thumb, 3:1 on --bg and --panel */
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;  /* spacing scale */
+    --fs-s: 12px; --fs-m: 14px; --fs-l: 16px; --fs-xl: 20px;  /* type scale */
+    --r-s: 7px; --r-m: 11px;
+    --head: 57px;  /* header height, measured in render(): it wraps on narrower windows */
+    color-scheme: light;  /* native controls, pickers and scrollbars follow the theme */
     --ecg: #7b4fd6; --imes: #0f8a8a; --passion: #d1642a; --personal: #6a7386;
   }
   @media (prefers-color-scheme: dark) {
@@ -17,20 +23,25 @@
       --bg: #12151b; --panel: #1b1f27; --ink: #e8ebf1; --muted: #98a1b3; --line: #2b313c;
       --accent: #6b9bff; --accent-ink: #0d1220; --accent-soft: #212e4a;
       --ok: #4cc38a; --ok-soft: #173326; --warn: #e3a64b; --warn-soft: #3a2c15; --danger: #f07171; --danger-soft: #3d1c1c;
-      --chip: #262b35; --ecg: #a684ff; --imes: #3cc2c2; --passion: #ff9a5c; --personal: #98a1b3;
+      --chip: #262b35; --danger-ink: #12151b; --scroll: #6b7385; color-scheme: dark; --ecg: #a684ff; --imes: #3cc2c2; --passion: #ff9a5c; --personal: #98a1b3;
     }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
+  html { scrollbar-color: var(--scroll) transparent; }
+  .tlist, .lines, .src { scrollbar-width: thin; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
   header { display: flex; gap: 12px; align-items: center; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
   header h1 { font-size: 16px; margin: 0; white-space: nowrap; }
   .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
   .tabs button { border: 0; background: none; padding: 7px 11px; border-radius: 7px; color: var(--muted); font-weight: 600; }
   .tabs button.on { background: var(--accent-soft); color: var(--accent); }
-  .tabs .n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+  .tabs a { padding: 7px 11px; border-radius: 7px; color: var(--muted); font-weight: 600; text-decoration: none; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs .n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 99px; background: var(--danger); color: var(--danger-ink); font-size: 11px; line-height: 18px; text-align: center; }
   .spacer { flex: 1; }
-  .quick { display: flex; gap: 6px; flex: 1 1 320px; max-width: 560px; }
+  .quick { display: flex; gap: var(--sp-2); flex: 1 0 100%; }
+  .quick[hidden] { display: none; }
   input, textarea, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; width: 100%; }
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 7px; padding: 6px 11px; cursor: pointer; white-space: nowrap; }
@@ -42,6 +53,8 @@
   button:disabled { opacity: .5; cursor: default; }
   main { padding: 16px 18px 40px; max-width: 1500px; margin: 0 auto; }
   .grid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 16px; align-items: start; }
+  .grid > * { min-width: 0; }
+  .grid.two { grid-template-columns: 1fr 1fr; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 14px 16px; margin-bottom: 16px; }
   .panel h2 { font-size: 14px; margin: 0 0 10px; display: flex; gap: 8px; align-items: center; }
   .panel h2 .sub { color: var(--muted); font-weight: 400; font-size: 12.5px; }
@@ -62,20 +75,79 @@
   .chip.s3 { background: var(--danger-soft); color: var(--danger); }
   .chip.s2 { background: var(--accent-soft); color: var(--accent); }
   a { color: var(--accent); }
-  .conv .lbl { font-weight: 600; }
-  .conv.handled { opacity: .62; }
-  .conv .sum { margin-top: 4px; font-size: 13px; }
-  .lines { margin-top: 6px; background: var(--bg); border-radius: 7px; padding: 5px 8px; font-size: 12.5px; max-height: 320px; overflow: auto; }
-  .lines .ln { padding: 2px 0 2px 7px; border-left: 2px solid transparent; word-break: break-word; white-space: pre-wrap; }
+  /* Mentions: a list of conversations and a reading pane. Colour means state only. */
+  .triage { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .tside { position: sticky; top: calc(var(--head) + 8px); }
+  .tlist { max-height: calc(100vh - var(--head) - 133px); overflow: auto; margin: 0 -6px; padding: 0 6px; }
+  .grp { display: flex; align-items: center; gap: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 4px; }
+  .grp:first-child { margin-top: 2px; }
+  .grp .n2 { font-weight: 600; color: var(--ink); }
+  .trow { display: flex; gap: 10px; padding: 8px 8px 8px 10px; border-radius: 8px; cursor: pointer; border-left: 3px solid transparent; outline: none; }
+  .trow + .trow { margin-top: 2px; }
+  .trow:hover { background: var(--bg); }
+  .trow.sel { background: var(--accent-soft); }
+  .trow:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  .trow.s-needs { border-left-color: var(--danger); }
+  .trow.s-followup { border-left-color: var(--warn); }  /* border only: --warn is under 4.5:1 as text */
+  .trow.s-answered .who, .trow.s-fyi .who { font-weight: 500; }
+  .trow .tmain { flex: 1; min-width: 0; }
+  .trow .l1 { display: flex; gap: 6px; align-items: baseline; }
+  .trow .who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 70%; }
+  .trow .kind { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 4; }  /* the name gives way last */
+  .trow .age { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .trow .gist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .trow.s-answered .gist, .trow.s-fyi .gist { color: var(--muted); }
+  .trow .l3 { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+  .trow .st-needs { color: var(--danger); font-weight: 600; }
+  .trow .st-follow { color: var(--ink); font-weight: 600; }
+  .thumbs { display: flex; gap: 3px; flex: none; align-self: center; }
+  .thumbs .th { width: 38px; height: 38px; border-radius: 6px; object-fit: cover; background: var(--chip); display: block; }
+  .thumbs .more { width: 38px; height: 38px; border-radius: 6px; background: var(--chip); color: var(--muted); font-size: 12px; display: grid; place-items: center; }
+  .tdetail { min-height: 300px; }
+  .dhead h2 { font-size: 17px; margin: 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .dhead .kind { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .dmeta { font-size: 12.5px; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .dstate { font-weight: 600; }
+  .dstate.needs { color: var(--danger); } .dstate.followup { color: var(--ink); } .dstate.answered { color: var(--ok); } .dstate.fyi { color: var(--muted); }
+  .dacts { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; }
+  .dgist { font-size: 15px; margin: 8px 0 2px; }
+  .dgist.sum::before { content: "Summary · "; color: var(--muted); font-size: 12px; }
+  .dasks { list-style: none; margin: 8px 0 2px; padding: 0; font-size: 15px; }
+  .dasks li { border-left: 2px solid var(--line); padding: 1px 0 1px 9px; word-break: break-word; }
+  .dasks li + li { margin-top: 3px; }
+  .dasks .more { font-size: 12.5px; color: var(--muted); }
+  .trow .gist .sep { color: var(--muted); }
+  .dshared { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+  .dshared .big { height: 150px; max-width: 240px; border-radius: 8px; object-fit: cover; background: var(--chip); cursor: zoom-in; display: block; }
+  .kbd { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .dacts kbd { font: 11px inherit; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; opacity: .7; }
+  .kbd kbd { font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--bg); }
+  .lines { margin-top: 6px; background: var(--bg); border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+  /* the reading pane fits the window; the conversation takes what's left, so only it scrolls */
+  .tdetail.wide { position: sticky; top: calc(var(--head) + 8px); max-height: calc(100vh - var(--head) - 33px); display: flex; flex-direction: column; }
+  main:has(.triage) { padding-bottom: 16px; } .triage > .panel { margin-bottom: 0; }
+  .tdetail .lines { flex: 1 1 auto; min-height: 120px; overflow: auto; }
+  .lines .ln { padding: 3px 0 3px 8px; border-left: 2px solid transparent; word-break: break-word; white-space: pre-wrap; }
   .lines .ln b { font-weight: 600; }
-  .lines .ln .t { color: var(--muted); font-size: 11px; margin-right: 4px; }
-  .lines .ln.ping { border-left-color: var(--danger); }
-  .lines .ln.ask { border-left-color: var(--warn); }
-  .lines .ln.reply b, .lines .ln.me b { color: var(--ok); }
-  .lines .gap { color: var(--muted); font-size: 11px; padding: 1px 0 1px 7px; }
-  .chip.q { background: var(--danger-soft); color: var(--danger); }
-  .chip.r { background: var(--warn-soft); color: var(--warn); }
-  .chip.ok { background: var(--ok-soft); color: var(--ok); }
+  .lines .ln .t { color: var(--muted); font-size: 11px; margin-right: 5px; }
+  .lines .ln.ping { border-left-color: var(--danger); background: var(--danger-soft); border-radius: 0 6px 6px 0; }
+  .lines .ln.ask { border-left-color: var(--danger); }
+  .lines .ln.me b { color: var(--ok); }
+  .lines .ln .lm { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+  .lines .ln .lm img, .lines .ln .lm video { height: 110px; max-width: 200px; border-radius: 6px; object-fit: cover; background: var(--chip); cursor: zoom-in; display: block; }
+  .vid { position: relative; display: inline-block; }
+  .vid::after { content: "▶"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; text-shadow: 0 1px 4px #000a; pointer-events: none; }
+  .linkchip { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--chip); color: var(--ink); text-decoration: none; margin: 3px 4px 0 0; white-space: nowrap; }
+  .linkchip:hover { outline: 1px solid var(--accent); }
+  .lines .gap { color: var(--muted); font-size: 11px; padding: 1px 0 1px 8px; }
+  .lb { position: fixed; inset: 0; background: #000d; display: grid; place-items: center; z-index: 30; padding: 24px; }
+  .lb img, .lb video { max-width: 100%; max-height: calc(100vh - 80px); border-radius: 6px; }
+  .lb button { position: fixed; top: 14px; right: 16px; }
+  @media (max-width: 760px) {
+    .triage { grid-template-columns: minmax(0, 1fr); } .tside, .tmain { min-width: 0; } .tside { position: static; } .tlist { max-height: none; overflow: visible; }
+    .tdetail.wide { display: none; } .acc { padding: 4px 4px 10px 13px; }
+    .dshared .big { height: 110px; }
+  }
   .src { font-size: 12px; color: var(--muted); background: var(--bg); border-radius: 7px; padding: 6px 8px; margin-top: 6px; white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
   .mention.unread .title { font-weight: 600; }
   .edit { display: grid; grid-template-columns: 1fr 190px 120px; gap: 6px; margin-top: 6px; }
@@ -85,51 +157,139 @@
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .orgbox { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; margin-top: 10px; }
-  .orgbox h4 { margin: 0 0 8px; font-size: 13px; }
+  .panel .orgbox h3 { margin: 0 0 8px; font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--ink); }
   .switch { position: relative; width: 34px; height: 20px; flex: none; display: inline-block; vertical-align: middle; }
-  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
   .switch span { position: absolute; inset: 0; background: var(--line); border-radius: 99px; cursor: pointer; transition: .15s; }
   .switch span::after { content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
   .switch input:checked + span { background: var(--ok); }
   .switch input:checked + span::after { transform: translateX(14px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .switch span, .switch span::after, .toast { transition: none; } }
+  /* Windows high contrast: backgrounds and box-shadows are dropped, so state, selection and focus need borders */
+  @media (forced-colors: active) {
+    .trow { border-left-color: Canvas; }
+    .trow.s-needs { border-left: 3px double CanvasText; }
+    .trow.s-followup { border-left: 3px dashed CanvasText; }
+    .trow.sel { outline: 1px solid Highlight; }
+    .trow:focus-visible { outline: 3px solid Highlight; }
+    .tabs button.on { outline: 2px solid Highlight; }
+    .lines .ln.ping { border-left: 2px solid CanvasText; }
+    .switch span { border: 1px solid CanvasText; }
+    .switch span::after { background: CanvasText; top: 2px; left: 2px; }
+    .switch input:checked + span { background: Highlight; }
+    .switch input:checked + span::after { background: Canvas; }
+  }
+  /* The floating bar: its own frameless window at /bar */
+  body.floating { background: var(--panel); overflow: hidden; }
+  body.floating header { display: none; }
+  body.floating main { padding: 0; max-width: none; }
+  .srh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
+  .barline { display: flex; align-items: center; gap: var(--sp-2); height: 48px; padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); }
+  .bargrip { flex: none; align-self: stretch; display: grid; place-items: center; width: 18px; color: var(--muted); cursor: move; }
+  .barnext { flex: 1; min-width: 0; line-height: 1.25; }
+  .bartitle { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barsay { font-size: var(--fs-s); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barnext.t0 .barsay { color: var(--danger); font-weight: 600; }
+  .barlist { height: 392px; overflow: auto; padding: var(--sp-2); }
+  .barlist .row { margin: var(--sp-2) 0; }
+  .barlist .nrow { cursor: default; }
   .steps { margin: 0; padding-left: 18px; }
   .steps li { margin-bottom: 8px; }
   code { background: var(--chip); padding: 1px 5px; border-radius: 5px; }
   .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: .2s; pointer-events: none; z-index: 20; max-width: 90vw; }
   .toast.show { opacity: 1; }
-  .modes { display: none; gap: 2px; }
-  .has-window .modes { display: flex; }
-  /* Sidebar and narrow windows */
+  #floatbtn { display: none; }
+  .has-window #floatbtn { display: inline-block; }
+  /* Narrow windows */
   @media (max-width: 1100px) { .grid { grid-template-columns: 1fr 1fr; } .grid > :nth-child(3) { grid-column: 1 / -1; } }
   @media (max-width: 760px) {
-    .grid { grid-template-columns: 1fr; } .grid > :nth-child(3) { grid-column: auto; }
-    header { padding: 8px 12px; } main { padding: 12px; } .form { grid-template-columns: 1fr; }
-    .edit { grid-template-columns: 1fr; } .quick { order: 9; flex-basis: 100%; max-width: none; }
+    .grid, .grid.two { grid-template-columns: 1fr; } .grid > :nth-child(3) { grid-column: auto; }
+    header { padding: var(--sp-1) var(--sp-3); gap: var(--sp-1) var(--sp-2); } main { padding: var(--sp-3); } .form { grid-template-columns: 1fr; }
+    header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }  /* kept for screen readers */
+    .tabs { flex: 1 0 100%; order: -1; } .tabs button { padding: 5px 7px; }
+    .edit { grid-template-columns: 1fr; } .focus { grid-template-columns: minmax(0, 1fr); }
+    .deck { margin-top: 0; } .deckcard { padding: var(--sp-3) var(--sp-4) var(--sp-4); min-height: 220px; }
   }
-  /* Widget: a small floating card with what's next */
-  body.widget header .tabs, body.widget header h1, body.widget #syncbtn { display: none; }
-  body.widget main { padding: 8px; }
-  body.widget .panel { padding: 10px 12px; margin-bottom: 8px; }
+  /* Now: one column to act in, one to catch up from */
+  .focus { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: var(--sp-4); align-items: start; max-width: 1200px; margin: 0 auto; }
+  .nrow { display: flex; gap: var(--sp-3); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); border-left: 3px solid transparent; border-radius: 0 var(--r-s) var(--r-s) 0; cursor: pointer; }
+  .nrow + .nrow { margin-top: 2px; }
+  .nrow:hover { background: var(--bg); }
+  .nrow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .nrow.t0 { border-left-color: var(--danger); } .nrow.t1 { border-left-color: var(--warn); }
+  .nrow.t0 .say { color: var(--danger); } .nrow.t1 .say { color: var(--warn); }
+  .nbody { flex: 1; min-width: 0; }
+  .ntitle { font-weight: 500; word-break: break-word; }
+  .nmeta { font-size: var(--fs-s); color: var(--muted); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 2px var(--sp-3); }
+  .say { font-weight: 600; color: var(--ink); }
+  .nacts { display: flex; gap: var(--sp-1); align-items: flex-start; flex: none; }
+  .nmore { margin-top: var(--sp-2); cursor: default; }
+  .nmore .src { margin-bottom: var(--sp-2); }
+  .nrow.hero { padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4); background: var(--bg); margin-bottom: var(--sp-3); cursor: default; }
+  .nrow.hero .ntitle { font-size: var(--fs-xl); font-weight: 600; line-height: 1.3; }
+  .nrow.hero .nmeta { font-size: 13px; margin-top: var(--sp-1); }
+  .nrow.hero .nacts button.primary { padding: 6px 16px; font-size: var(--fs-m); }
+  .drow { display: flex; gap: var(--sp-2); padding: var(--sp-1) var(--sp-3); align-items: flex-start; }
+  .check { color: var(--ok); font-weight: 700; }
+  .dbody { flex: 1; min-width: 0; }
+  .dtitle { color: var(--muted); word-break: break-word; }
+  .n2 { font-weight: 600; color: var(--ink); }
+  .sline { display: flex; gap: var(--sp-3); padding: 3px 0; }
+  .stime { flex: none; width: 66px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .sorg { color: var(--muted); font-size: var(--fs-s); }
+  .bline { display: flex; gap: var(--sp-3); padding: 3px 0; }
+  .bline > b { flex: none; width: 52px; }
+  .bfound { padding: 3px 0; word-break: break-word; }
+  .bfound .sorg { display: block; }
+  .sortnudge { display: flex; flex-direction: column; align-items: flex-start; width: 100%; white-space: normal; text-align: left; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-m); }
+  .sortnudge span { color: var(--muted); font-size: var(--fs-s); }
+  /* Review: one card at a time */
+  .deck { max-width: 560px; margin: var(--sp-5) auto 0; }
+  .deckhead { display: flex; font-size: var(--fs-s); color: var(--muted); font-weight: 600; margin-bottom: var(--sp-1); }
+  .deckbar { height: 4px; background: var(--line); border-radius: 99px; overflow: hidden; margin-bottom: var(--sp-4); }
+  .deckbar span { display: block; height: 100%; background: var(--accent); }
+  .deckstack { position: relative; }
+  .deckcard { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-m); padding: var(--sp-4) var(--sp-5) var(--sp-5); min-height: 260px; touch-action: pan-y; cursor: grab; user-select: none; --keep: 0; --drop: 0; }
+  .deckcard.dragging { cursor: grabbing; box-shadow: 0 8px 24px #0002; }
+  .deckcard.under { position: absolute; inset: 8px 8px -8px; min-height: 0; background: var(--bg); }
+  .deckcard h2 { font-size: var(--fs-xl); line-height: 1.3; margin: var(--sp-3) 0 var(--sp-2); word-break: break-word; }
+  .dkind { display: flex; gap: var(--sp-2); align-items: center; font-size: 13px; }
+  .dkind .when { font-weight: 600; }
+  .stamp { position: absolute; top: var(--sp-3); padding: 2px 10px; border: 2px solid; border-radius: var(--r-s); font-weight: 700; font-size: var(--fs-l); pointer-events: none; }
+  .stamp.keep { right: var(--sp-4); color: var(--ok); opacity: var(--keep); } .stamp.drop { left: var(--sp-4); color: var(--danger); opacity: var(--drop); }
+  .deckacts { display: flex; gap: var(--sp-3); margin-top: var(--sp-5); }
+  .deckacts .big { flex: 1; padding: 10px; font-weight: 600; font-size: var(--fs-m); }
+  .deckfoot { display: flex; align-items: center; justify-content: center; gap: var(--sp-3); margin-top: var(--sp-3); min-height: 28px; }
+  .deckfoot .kbd { margin: 0; }
+  .deckdone { text-align: center; padding: 48px var(--sp-4); }
+  .deckdone h2 { font-size: var(--fs-xl); margin: 0 0 var(--sp-2); }
+  .deckdone p { color: var(--muted); }
+  @media (max-width: 900px) { .focus { grid-template-columns: minmax(0, 1fr); } }
+  .livepill { font-size: var(--fs-s); font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+  .livepill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .livepill.ok { background: var(--ok-soft); color: var(--ok); }
+  .livepill.warn { background: var(--warn-soft); color: var(--warn); }
+  .livepill.bad, .livepill.paused { background: var(--danger-soft); color: var(--danger); }
+  .livepill.busy { background: var(--accent-soft); color: var(--accent); }
 </style>
 </head>
 <body>
 <header>
   <h1>Messenger Hub</h1>
   <nav class="tabs" id="tabs"></nav>
-  <div class="quick">
-    <input id="quick" placeholder="Note to self… e.g. 'send IE plate bukas 9pm #school'">
+  <div class="spacer"></div>
+  <button class="small ghost" id="notebtn" aria-expanded="false" aria-controls="quickrow" title="Add a note (n)">+ Note</button>
+  <button class="small ghost" id="floatbtn" title="Shrink to a slim bar that stays on top of your other windows">Float</button>
+  <span class="livepill" id="livepill" role="status"></span>
+  <button class="small" id="syncbtn" title="Opens the hub's browser window and fetches new messages from your chosen chats">Sync</button>
+  <div class="quick" id="quickrow" hidden>
+    <input id="quick" aria-label="Note to self" placeholder="Note to self… e.g. 'send plate bukas 9pm #school'">
     <button class="primary" id="quickadd">Add</button>
   </div>
-  <div class="spacer"></div>
-  <div class="modes" id="modes">
-    <button class="small ghost" data-mode="normal" title="Full window">▣</button>
-    <button class="small ghost" data-mode="sidebar" title="Sidebar, docked right, always on top">▐</button>
-    <button class="small ghost" data-mode="widget" title="Small widget, always on top">▫</button>
-  </div>
-  <button class="small" id="syncbtn" title="Opens the hub's browser window and fetches new messages from your chosen chats">Sync</button>
 </header>
 <main id="main"></main>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status"></div>
 
 <script>
 let A = null;           // /api/app
@@ -137,7 +297,17 @@ let tab = "home";
 let editing = null;     // entry id being edited
 let openSrc = new Set();
 let mentionFilter = { org: "", open: false };
-let openConv = new Set();
+let openConv = new Set();   // narrow windows: conversations shown in full
+let selKey;                 // the selected conversation (null: none, after closing one on a narrow window)
+let lightbox = null;        // {type, url} shown full size
+const BAR = location.pathname === "/bar";
+if (BAR) document.body.classList.add("floating");
+let barOpen = false;
+let offline = false;        // the page can't reach the hub
+let openNow = new Set();    // Do now rows opened to read
+let showAllNext = false;
+let deckMode = "live", deckLast = null, deckDone = { live: 0, expired: 0 };
+let triageStarted = null;   // when you opened Mentions with something waiting (for time-to-clear)
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -172,7 +342,7 @@ function countdown(e) {
   const span = dd >= 2 ? `${dd} days` : h >= 1 ? `${h}h ${m}m` : `${m}m`;
   return ms < 0 ? `${span} overdue` : `in ${span}`;
 }
-const KIND = { deadline: "Deadline", meeting: "Meeting", task: "For you", capture: "Note", win: "Win" };
+const KIND = { deadline: "Deadline", meeting: "Meeting", task: "For you", capture: "Note", win: "Win", class: "Class", canvas: "Canvas" };
 
 function entryCard(e, opts = {}) {
   const ms = e.due ? new Date(e.due) - new Date() : null;
@@ -184,15 +354,15 @@ function entryCard(e, opts = {}) {
     `<span class="chip">${esc(KIND[e.kind] || e.kind)}</span>`,
     `<span>${esc(orgName(e.org))}</span>`,
     e.chat_name && e.origin === "rule" ? `<span>${esc(e.chat_name)}${e.author ? " · " + esc(e.author) : ""}</span>` : "",
-    sug ? `<span class="chip sug" title="${esc(e.reasons || "")}">suggested ${Math.round(e.confidence * 100)}%</span>` : "",
+    sug ? `<span class="chip sug" title="${esc(e.reasons || "")}">not sure yet</span>` : "",
   ].join("");
   const acts = opts.review
     ? `<button class="small primary" data-act="accept" data-id="${e.id}">Accept</button><button class="small" data-act="reject" data-id="${e.id}">Not mine</button><button class="small ghost" data-act="edit" data-id="${e.id}">Edit</button>`
-    : `<button class="small" data-act="done" data-id="${e.id}" title="Mark done">✓</button>${sug ? `<button class="small" data-act="accept" data-id="${e.id}" title="Yes, track this">Keep</button>` : ""}<button class="small ghost" data-act="dismiss" data-id="${e.id}" title="Dismiss">✕</button><button class="small ghost" data-act="edit" data-id="${e.id}" title="Edit">✎</button>`;
+    : `<button class="small" data-act="done" data-id="${e.id}" title="Mark done" aria-label="Mark done">✓</button>${sug ? `<button class="small" data-act="accept" data-id="${e.id}" title="Yes, track this">Keep</button>` : ""}<button class="small ghost" data-act="dismiss" data-id="${e.id}" title="Dismiss" aria-label="Dismiss">✕</button><button class="small ghost" data-act="edit" data-id="${e.id}" title="Edit" aria-label="Edit">✎</button>`;
   const edit = editing === e.id ? `<div class="edit">
-      <input data-f="title" value="${esc(e.title)}">
-      <input data-f="due" type="datetime-local" value="${esc((e.due || "").slice(0, 16))}">
-      <select data-f="org"><option value="">Personal</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === e.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
+      <input data-f="title" aria-label="Title" value="${esc(e.title)}">
+      <input data-f="due" type="datetime-local" aria-label="Due" value="${esc((e.due || "").slice(0, 16))}">
+      <select data-f="org" aria-label="Org"><option value="">Personal</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === e.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
       <div class="row" style="grid-column:1/-1"><button class="small primary" data-act="save" data-id="${e.id}">Save</button><button class="small ghost" data-act="cancel">Cancel</button></div>
     </div>` : "";
   return `<div class="card ${cls}"><div class="bar" style="background:${orgColor(e.org)}"></div><div class="body">
@@ -201,29 +371,77 @@ function entryCard(e, opts = {}) {
       ${edit}</div><div class="acts">${acts}</div></div>`;
 }
 
-const LABELS = { question: ["asks you", "q"], request: ["asks you to do something", "r"], meeting: ["meeting", "r"], ping: ["wants your attention", "q"], fyi: ["for your information", ""], banter: ["banter", ""] };
+const ASK = { question: "asks you", request: "asks you to do something", review: "wants you to review this", meeting: "meeting", ping: "wants your attention", fyi: "for your information", banter: "banter" };
+const STATE = { needs: "Needs you", followup: "Follow up", answered: "Answered", fyi: "For your information" };
+const STATES = Object.keys(STATE);
 const fmtWhen = (ts) => new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const fmtTime = (ts) => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+function ago(ts) {
+  const m = Math.max(0, (Date.now() - new Date(ts)) / 60000);
+  return m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+}
+// Their ask as separate messages (when it took more than one and there's no summary), so they don't run together.
+const asks = (c) => (!c.summary && c.asks && c.asks.length > 1 ? c.asks : null);
+const stateLine = (c) => c.state === "needs" ? c.why || "needs you" : c.state === "followup" ? c.why : c.state === "fyi" ? "nothing asked" : `${c.handled.how} ${fmtTime(c.handled.ts)}`;
+
+function mediaTag(x, cls, who) {
+  const alt = `${x.type === "video" ? "Video" : "Photo"} from ${who || "someone"}`;
+  return x.type === "video"
+    ? `<span class="vid"><video class="${cls}" src="${esc(x.url)}#t=0.1" preload="metadata" muted playsinline data-lb="${esc(x.url)}" data-lbt="video" aria-label="${esc(alt)}" role="button" tabindex="0"></video></span>`
+    : `<img class="${cls}" src="${esc(x.url)}" loading="lazy" alt="${esc(alt)}" data-lb="${esc(x.url)}" data-lbt="image" role="button" tabindex="0">`;
+}
+const linkChip = (l) => `<a class="linkchip" href="${esc(l.url)}" data-ext="1" title="${esc(l.url)}"><span aria-hidden="true">↗</span> ${esc(l.site)}</a>`;
 
 function convLines(lines) {
   return lines.map((l) => l.gap ? `<div class="gap">… ${l.gap} more message${l.gap === 1 ? "" : "s"} …</div>`
-    : `<div class="ln ${l.role} ${l.is_me ? "me" : ""}"><span class="t">${esc(fmtTime(l.ts))}</span><b>${esc(l.is_me ? "You" : l.author || "?")}</b>: ${esc(l.text)}</div>`).join("");
+    : `<div class="ln ${l.role} ${l.is_me ? "me" : ""}" ${l.role === "ping" ? 'data-ping="1"' : ""}><span class="t">${esc(fmtTime(l.ts))}</span><b>${esc(l.is_me ? "You" : l.author || "?")}</b>${l.text ? ": " + esc(l.text) : ""}${l.unsaved ? ` <i class="kind">(photo or file that wasn't saved)</i>` : ""}${l.media && l.media.length ? `<div class="lm">${l.media.map((x) => mediaTag(x, "", l.is_me ? "you" : l.author)).join("")}</div>` : ""}${l.links && l.links.length ? `<div>${l.links.map(linkChip).join("")}</div>` : ""}</div>`).join("");
 }
 
-function convCard(c) {
-  const [lbl, cls] = LABELS[c.label] || [c.label, ""];
-  const open = openConv.has(c.key);
-  const status = c.handled ? `<span class="chip ok">${esc(c.handled.how)}${c.handled.how === "banter" ? "" : " · " + esc(fmtTime(c.handled.ts))}</span>` : `<span class="chip q">needs you</span>`;
-  const due = c.due ? `<span class="chip r">due ${esc(fmtWhen(c.due))}</span>` : "";
-  return `<div class="card conv ${c.unread ? "unread" : ""} ${c.handled ? "handled" : ""}"><div class="bar" style="background:${orgColor(c.org)}"></div><div class="body">
-      <div class="title"><span class="lbl">${esc(c.asker || "?")}</span> <span class="chip ${cls}">${esc(lbl)}</span> ${due} ${status}</div>
-      ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}
-      <div class="lines">${convLines(open ? c.full : c.excerpt)}</div>
-      <div class="meta"><span>${esc(c.chat_name || "")}</span><span>${esc(fmtWhen(c.last_ping))}</span><span>${c.pings} ping${c.pings === 1 ? "" : "s"} · ${c.size} messages</span>
-        <a href="#" data-cexpand="${esc(c.key)}">${open ? "Show less" : `Whole conversation${c.size > 60 ? " (last 60)" : ""}`}</a>
-        <a href="#" data-copen="${esc(c.channel)}" data-key="${esc(c.key)}">Open in Messenger</a>
-        ${c.handled || c.summary ? "" : `<a href="#" data-csum="${esc(c.key)}" title="Haiku reads this conversation and writes one line (uses your Claude plan)">Summarise</a>`}</div>
-    </div><div class="acts">${c.handled ? "" : c.unread ? `<button class="small" data-cread="${esc(c.key)}" title="Mark read">✓</button>` : `<button class="small ghost" data-cread="${esc(c.key)}" data-unread="1" title="Mark unread">●</button>`}</div></div>`;
+function triageRow(c, compact) {
+  const sel = c.key === selKey;
+  const thumbs = c.media.length ? `<div class="thumbs" aria-hidden="true">${c.media.map((x) => x.type === "video" ? `<span class="more">▶</span>` : `<img class="th" src="${esc(x.url)}" loading="lazy" alt="">`).join("")}${c.media_count > c.media.length ? `<span class="more">+${c.media_count - c.media.length}</span>` : ""}</div>` : "";
+  const extra = [c.chat_name, c.due ? "due " + fmtWhen(c.due) : "", c.media_count ? `${c.media_count} photo${c.media_count === 1 ? "" : "s"}/video${c.media_count === 1 ? "" : "s"}` : "", c.links.length ? c.links.map((l) => l.site).join(", ") : "", c.pings > 1 ? `${c.pings} pings` : ""].filter(Boolean);
+  const row = `<div class="trow s-${c.state} ${sel ? "sel" : ""}" ${compact !== "home" && narrow() ? `role="button" aria-expanded="${sel}"${sel ? ' aria-controls="acc-open"' : ""}` : compact === "home" ? 'role="link"' : `role="option" aria-selected="${sel}"`} tabindex="${compact === "home" || sel || (!selKey && compact === 0) ? 0 : -1}" data-sel="${esc(c.key)}" ${compact === "home" ? 'data-gotab="1"' : ""}>
+      <div class="tmain">
+        <div class="l1"><span class="who">${esc(c.asker || "?")}</span><span class="kind">${esc(ASK[c.label] || c.label)}</span><span class="age" title="${esc(fmtWhen(c.last_ping))}">${esc(ago(c.last_ping))}</span></div>
+        <div class="gist">${asks(c) ? asks(c).map(esc).join('<span class="sep"> · </span>') : esc(c.summary || c.gist)}</div>
+        <div class="l3"><span class="${c.state === "needs" ? "st-needs" : c.state === "followup" ? "st-follow" : ""}">${esc(stateLine(c))}</span>${extra.map((x) => `<span>${esc(x)}</span>`).join("")}</div>
+      </div>${thumbs}</div>`;
+  if (compact === "home" || !sel || !narrow()) return row;
+  return row + `<div class="acc" id="acc-open">${detail(c, true)}</div>`;  // narrow window: the conversation opens under its row
+}
+
+function detail(c, inline) {
+  if (!c) return `<div class="panel tdetail wide"><p class="empty">Pick a conversation on the left.</p></div>`;
+  const full = !inline || openConv.has(c.key);
+  const body = `<div class="dhead"><h2>${esc(c.asker || "?")} <span class="kind">${esc(ASK[c.label] || c.label)}</span></h2>
+      <div class="dmeta"><span class="dstate ${c.state}">${esc(stateLine(c))}</span>${c.due ? `<span>due ${esc(fmtWhen(c.due))}</span>` : ""}<span>${esc(c.chat_name || "")}</span><span>${esc(fmtWhen(c.last_ping))}</span><span>${c.size} messages</span></div></div>
+    ${asks(c) ? `<ul class="dasks">${asks(c).slice(0, 4).map((t) => `<li>${esc(t)}</li>`).join("")}${asks(c).length > 4 ? `<li class="more">+${asks(c).length - 4} more in the conversation</li>` : ""}</ul>`
+      : `<div class="dgist ${c.summary ? "sum" : ""}">${esc(c.summary || c.gist)}</div>`}
+    ${c.media.length || c.links.length ? `<div class="dshared">${c.media.map((x) => mediaTag(x, "big", c.asker)).join("")}${c.links.map(linkChip).join("")}</div>` : ""}
+    <div class="dacts">
+      ${c.state === "needs" || c.state === "followup" ? `<button class="small primary" data-cdone="${esc(c.key)}" aria-keyshortcuts="d e">Done <kbd aria-hidden="true">d</kbd></button>` : ""}
+      ${c.handled && c.handled.how === "you marked it done" ? `<button class="small ghost" data-cdone="${esc(c.key)}" data-undo="1">Not done yet</button>` : ""}
+      <button class="small" data-copen="${esc(c.channel)}" data-key="${esc(c.key)}" aria-keyshortcuts="o">Open in Messenger <kbd aria-hidden="true">o</kbd></button>
+      ${c.summary || c.state !== "needs" ? "" : `<button class="small ghost" data-csum="${esc(c.key)}" title="Haiku reads this conversation and writes one line (uses your Claude plan)">Summarise</button>`}
+      ${inline ? `<button class="small ghost" data-cexpand="${esc(c.key)}">${full ? "Around the ping" : `Whole conversation${c.size > 60 ? " (last 60)" : ""}`}</button>` : ""}
+    </div>
+    <div class="lines" ${inline ? "" : 'id="dlines" role="region" aria-label="Conversation" tabindex="-1"'}>${convLines(full ? c.full : c.excerpt)}</div>`;
+  return inline ? body : `<div class="panel tdetail wide">${body}</div>`;
+}
+
+const narrow = () => window.matchMedia("(max-width: 760px)").matches;
+// With every org synced there can be hundreds of handled conversations: list the newest of each until asked.
+const DONE_CAP = 40;
+let showAllDone = false;
+function visibleCards(all) {
+  let ms = A.dash.cards;
+  if (mentionFilter.org) ms = ms.filter((m) => (m.org || "") === mentionFilter.org);
+  if (mentionFilter.open) ms = ms.filter((m) => m.state === "needs");
+  ms = ms.slice().sort((a, b) => STATES.indexOf(a.state) - STATES.indexOf(b.state));  // j/k follow the groups on screen
+  if (all || showAllDone) return ms;
+  const n = {};
+  return ms.filter((c) => (c.state !== "answered" && c.state !== "fyi") || (n[c.state] = (n[c.state] || 0) + 1) <= DONE_CAP);
 }
 
 const list = (items, fn, empty) => (items.length ? items.map(fn).join("") : `<p class="empty">${empty}</p>`);
@@ -231,91 +449,204 @@ const list = (items, fn, empty) => (items.length ? items.map(fn).join("") : `<p 
 // --- views -------------------------------------------------------------------------------------
 function renderTabs() {
   const d = A.dash;
-  const tabs = [["home", "Home"], ["review", "Review", d.review_count], ["mentions", "Mentions", d.unread_mentions], ["wins", "Wins"], ["settings", "Settings"]];
-  $("#tabs").innerHTML = tabs.map(([k, l, n]) => `<button class="${tab === k ? "on" : ""}" data-tab="${k}">${l}${n ? `<span class="n">${n > 99 ? "99+" : n}</span>` : ""}</button>`).join("") + `<button data-href="/config">Chats &amp; orgs</button>`;
-  const s = $("#syncbtn"); s.disabled = A.syncing; s.textContent = A.syncing ? "Syncing…" : "Sync";
+  const tabs = [["home", "Now", d.plan.now_count], ["review", "Review", d.review_count], ["mentions", "Mentions"], ["notes", "Notes"], ["settings", "Settings"]];
+  $("#tabs").innerHTML = tabs.map(([k, l, n]) => `<button class="${tab === k ? "on" : ""}" data-tab="${k}" ${tab === k ? 'aria-current="page"' : ""}>${l}${n ? `<span class="n">${n > 99 ? "99+" : n}</span>` : ""}</button>`).join("");
+  const s = $("#syncbtn"); s.disabled = A.stopping; s.textContent = A.stopping ? "Stopping…" : A.syncing ? "Stop sync" : "Sync";
+  s.title = A.syncing ? "Stops after the chat it's reading. A new chat keeps what's been read; the rest wait for the next sync" : "Opens the hub's browser window and fetches new messages from your chosen chats";
+  const [cls, text] = freshness(), pill = $("#livepill");
+  pill.className = "livepill " + cls;
+  pill.textContent = text;
 }
 
+// One glance: is what's on screen current? Words carry it, colour only backs them up.
+function freshness() {
+  const lv = A.live || {};
+  if (offline) return ["bad", "Hub stopped"];
+  if (lv.state === "paused") return ["paused", "Live sync paused"];
+  if (A.stopping) return ["busy", "Stopping sync"];
+  if (A.syncing) return ["busy", "Syncing"];
+  if (lv.state === "live" && lv.why) return ["warn", lv.why.split(":")[0] + (lv.waiting ? ` · ${lv.waiting} waiting` : "")];  // watching the list, but opening nothing
+  if (lv.state === "live") return ["ok", `Live · ${lv.last_check ? ago(lv.last_check) + " ago" : "starting"}`];
+  if (lv.state === "starting") return ["busy", "Live starting"];
+  if (!A.synced_at) return ["bad", "Never synced"];
+  const h = (Date.now() - new Date(A.synced_at)) / 36e5;
+  return h >= 24 ? ["bad", `Not synced for ${ago(A.synced_at)}`] : h >= 6 ? ["warn", `Synced ${ago(A.synced_at)} ago`] : ["ok", `Synced ${ago(A.synced_at)} ago`];
+}
+const stale = () => ["bad", "paused"].includes(freshness()[0]) || !!((A.live || {}).why && A.live.waiting);
+
+const LIVE_WORD = { live: "Live", starting: "Starting", paused: "Paused", stopped: "Stopped" };
+function liveLine() {
+  const lv = A.live || { state: "stopped" };
+  const last = lv.last_check ? lv.last_check.slice(11, 19) : "not yet";
+  const count = lv.state === "stopped" ? "" : ` · last check ${esc(last)} · ${lv.opens_today || 0} of ${lv.limit || 0} chats opened today${lv.waiting ? ` · ${lv.waiting} waiting` : ""}`;
+  return `<strong>${LIVE_WORD[lv.state] || esc(lv.state)}</strong>${count}${lv.why ? `<br>${esc(lv.why)}` : ""}`;
+}
+
+// Chat wording reads as chat: drop your own name from the front so the task shows first.
+function taskTitle(t) {
+  const names = (A.profile.names || []).concat(A.me || []).filter(Boolean).sort((x, y) => y.length - x.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const out = names.length ? String(t || "").replace(new RegExp(`^(?:@?(?:${names.join("|")})\\b[\\s,:-]*)+`, "i"), "") : String(t || "");
+  return (out || String(t || "")).replace(/^./, (c) => c.toUpperCase());
+}
+
+function nowRow(n, hero) {
+  const open = (openNow.has(n.key) || hero) && !BAR;
+  const card = n.card ? A.dash.cards.find((c) => c.key === n.card) : null, media = card ? card.media : [];  // the card holds the conversation
+  const meta = [`<span class="say">${esc(n.say)}</span>`, n.due ? `<span>${esc(dueLabel(n))}${n.tier === 0 ? " · " + esc(countdown(n)) : ""}</span>` : "", `<span>${esc(orgName(n.org))}</span>`, n.who ? `<span>${esc(n.who)}</span>` : "", KIND[n.kind] && n.origin !== "rule" ? `<span class="chip">${esc(KIND[n.kind])}</span>` : ""].join("");
+  const more = open ? `<div class="nmore">
+      ${n.source && taskTitle(n.source) !== taskTitle(n.title) ? `<div class="src">${esc(n.source)}</div>` : ""}
+      ${media.length ? `<div class="dshared">${media.map((x) => mediaTag(x, "big", n.who)).join("")}</div>` : ""}
+      ${n.card ? `<button class="small" data-nopen="${esc(n.card)}">Read the conversation</button>` : ""}
+    </div>` : "";
+  return `<article class="nrow t${n.tier} ${hero ? "hero" : ""}" tabindex="0" data-n="${esc(n.key)}" aria-label="${esc(n.say + ": " + taskTitle(n.title))}">
+    <div class="nbody"><div class="ntitle">${esc(taskTitle(n.title))}</div><div class="nmeta">${meta}</div>${more}</div>
+    <div class="nacts">
+      <button class="small ${hero ? "primary" : ""}" data-res="done" data-e="${n.entry || ""}" data-c="${esc(n.card || "")}" aria-keyshortcuts="d" aria-label="Done: ${esc(taskTitle(n.title))}">Done</button>
+      <button class="small ghost" data-res="drop" data-e="${n.entry || ""}" data-c="${esc(n.card || "")}" aria-keyshortcuts="x" title="Not for me" aria-label="Not for me: ${esc(taskTitle(n.title))}">✕</button>
+    </div></article>`;
+}
+
+// The bar: status and the next thing, always on top. Opening it shows the rest of Do now.
+function barView() {
+  const P = A.dash.plan, n = P.now[0], [cls, text] = freshness();
+  const more = P.now_count > 1 ? `${P.now_count - 1} more` : "Note";
+  return `<h1 class="srh">Messenger Hub bar</h1><div class="barline">
+      <span class="bargrip pywebview-drag-region" title="Drag to move" aria-hidden="true">⠿</span>
+      <span class="livepill ${cls}">${esc(text)}</span>
+      <div class="barnext t${n ? n.tier : ""}">${n ? `<div class="bartitle" title="${esc(taskTitle(n.title))}">${esc(taskTitle(n.title))}</div><div class="barsay">${esc(n.say)}${n.due ? " · " + esc(dueLabel(n)) : ""} · ${esc(orgName(n.org))}</div>` : `<div class="bartitle">${stale() ? "May be behind: sync to be sure" : "Nothing needs you"}</div>`}</div>
+      ${n ? `<button class="small primary" data-res="done" data-e="${n.entry || ""}" data-c="${esc(n.card || "")}">Done</button>` : ""}
+      <button class="small ghost" id="barmore" aria-expanded="${barOpen}" aria-controls="barlist">${esc(more)} ${barOpen ? "▴" : "▾"}</button>
+      <button class="small ghost" id="barhub" title="Back to the full hub" aria-label="Open the full hub">↗</button>
+    </div>
+    ${barOpen ? `<div class="barlist" id="barlist">
+      <div class="row"><input id="notetext" aria-label="New note" placeholder="Note to self…" style="flex:1"><button class="small" id="addnote">Add</button></div>
+      ${P.now.slice(1, 30).map((x) => nowRow(x)).join("")}
+      ${P.now_count > 30 ? `<p class="hint">${P.now_count - 30} more in the full hub.</p>` : ""}
+    </div>` : ""}`;
+}
+
+const NEXT_CAP = 6;
 function home() {
-  const d = A.dash;
-  if (document.body.classList.contains("widget")) {
-    const next = [...d.overdue, ...d.today, ...d.tomorrow].slice(0, 6);
-    return `<div class="panel"><h2>Next up <span class="sub">${d.needs_you} need you · ${d.review_count} to review</span></h2>${list(next, entryCard, "Nothing due today or tomorrow.")}</div>`;
-  }
-  const groups = { "This week": [], Later: [] };
-  const now = new Date(d.now), weekEnd = new Date(now); weekEnd.setDate(now.getDate() + 7);
-  for (const e of d.deadlines) {
-    const due = new Date(e.due);
-    if (due.toDateString() === now.toDateString()) continue;  // shown under Today
-    if (d.tomorrow.some((t) => t.id === e.id)) continue;
-    (due < weekEnd ? groups["This week"] : groups.Later).push(e);
-  }
-  const needs = d.cards.filter((c) => !c.handled), done = d.cards.filter((c) => c.handled);
-  return `<div class="grid">
+  const d = A.dash, P = d.plan;
+  const nextShown = showAllNext ? P.next : P.next.slice(0, NEXT_CAP);
+  const schedule = d.today.filter((e) => e.due_has_time && ["meeting", "class"].includes(e.kind));
+  const clear = stale() ? `Nothing to do, but the hub may be behind: <b>${esc(freshness()[1])}</b>. Sync to be sure.` : "Nothing needs you right now.";
+  return `<div class="focus">
     <section class="panel">
-      <h2>Today <span class="sub">${esc(now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</span></h2>
-      ${d.overdue.length ? `<h3>Overdue</h3>${d.overdue.map((e) => entryCard(e)).join("")}` : ""}
-      <h3>Due and happening today</h3>${list(d.today, (e) => entryCard(e), "Nothing due today.")}
-      <h3>Notes without a date</h3>${list(d.inbox.slice(0, 12), (e) => entryCard(e), "Inbox zero. Add notes above, on Telegram, or by messaging yourself on Messenger.")}
+      <h2>Do now <span class="sub">${P.now_count ? `${P.now_count} thing${P.now_count === 1 ? "" : "s"}, most urgent first` : ""}</span></h2>
+      ${P.now.length ? nowRow(P.now[0], true) + P.now.slice(1).map((n) => nowRow(n)).join("") : `<p class="empty">${clear}</p>`}
+      ${P.next.length ? `<h3>Coming up <span class="n2">${P.next_count}</span></h3>${nextShown.map((n) => nowRow(n)).join("")}${P.next.length > NEXT_CAP && !showAllNext ? `<button class="small ghost" data-allnext>Show ${P.next.length - NEXT_CAP} more</button>` : ""}` : ""}
+      ${P.dealt.length ? `<h3>Dealt with <span class="n2">${P.dealt_count}</span></h3>${P.dealt.map(dealtRow).join("")}` : ""}
     </section>
-    <section class="panel">
-      <h2>Deadlines</h2>
-      <h3>Tomorrow</h3>${list(d.tomorrow, (e) => entryCard(e), "Nothing due tomorrow.")}
-      <h3>Next 7 days</h3>${list(groups["This week"], (e) => entryCard(e), "Nothing else this week.")}
-      ${groups.Later.length ? `<h3>Later</h3>${groups.Later.map((e) => entryCard(e)).join("")}` : ""}
-      ${d.review_count ? `<p class="hint">${d.review_count} more suggestion${d.review_count === 1 ? "" : "s"} wait${d.review_count === 1 ? "s" : ""} in <a href="#" data-tab="review">Review</a>.</p>` : ""}
-    </section>
-    <section class="panel">
-      <h2>Mentions <span class="sub">${needs.length} need${needs.length === 1 ? "s" : ""} you</span>${d.unread_mentions ? `<span class="spacer"></span><button class="small ghost" data-creadall>Mark all read</button>` : ""}</h2>
-      ${list(needs.slice(0, 12), convCard, "Nothing waiting on you. Every ping in the last 30 days is answered.")}
-      ${needs.length > 12 || done.length ? `<p class="hint"><a href="#" data-tab="mentions">${needs.length > 12 ? needs.length - 12 + " more, and " : ""}${done.length} already handled</a></p>` : ""}
-    </section>
+    <aside>
+      ${schedule.length ? `<section class="panel"><h2>Today's schedule</h2>${schedule.map((e) => `<div class="sline"><span class="stime">${esc(fmtTime(e.due))}</span><span>${esc(taskTitle(e.title))}<span class="sorg"> · ${esc(orgName(e.org))}</span></span></div>`).join("")}</section>` : ""}
+      <section class="panel"><h2>Brief <span class="sub">last 24 hours</span></h2>${briefView()}</section>
+      ${d.review_count ? `<button class="sortnudge" data-tab="review"><b>${d.review_count} suggestion${d.review_count === 1 ? "" : "s"} to sort</b><span>Keep or drop, one at a time</span></button>` : ""}
+    </aside>
   </div>`;
 }
 
+function dealtRow(x) {
+  return `<div class="drow"><span class="check" aria-hidden="true">✓</span><div class="dbody"><div class="dtitle">${esc(taskTitle(x.title))}</div><div class="nmeta"><span>${esc(x.how)} ${esc(ago(x.ts))} ago</span><span>${esc(orgName(x.org))}</span>${x.who ? `<span>${esc(x.who)}</span>` : ""}</div></div>${x.undo ? `<button class="small ghost" data-reopen="${esc(x.card)}">Undo</button>` : ""}</div>`;
+}
+
+function briefView() {
+  const b = A.dash.brief;
+  if (!b.orgs.length && !b.found.length) return `<p class="empty">Nothing new in the last day.</p>`;
+  const rows = b.orgs.map((o) => `<div class="bline"><b>${esc(orgName(o.org))}</b><span>${o.messages} message${o.messages === 1 ? "" : "s"}${o.pings ? ` · ${o.pings} mention${o.pings === 1 ? "" : "s"} of you` : ""}${o.waiting ? ` · <b>${o.waiting} waiting</b>` : ""}</span></div>`).join("");
+  const found = b.found.length ? `<h3>Newly found</h3>${b.found.map((e) => `<div class="bfound">${esc(taskTitle(e.title))}<span class="sorg">${esc(orgName(e.org))}${e.due ? " · " + esc(dueLabel(e)) : ""}</span></div>`).join("")}` : "";
+  return rows + found;
+}
+
+// Review: one suggestion at a time. Keep or drop, then the next one. Every drop teaches what the rules got wrong.
 function review() {
+  const d = A.dash, list = deckMode === "expired" ? d.review_expired : d.review;
+  const total = (deckMode === "expired" ? d.review_expired_count : d.review_count) + deckDone[deckMode];  // the list itself is the next few
+  const e = list[0];
+  const undo = deckLast ? `<button class="small ghost" id="deckundo" aria-keyshortcuts="z">Undo <kbd aria-hidden="true">z</kbd></button>` : "";
+  if (!e) {
+    const gone = d.review_expired_count;
+    return `<div class="deck"><div class="deckdone"><h2>${deckDone[deckMode] ? "All sorted" : "Nothing to sort"}</h2>
+      ${deckMode === "live" && gone ? `<p>${gone} suggestion${gone === 1 ? "" : "s"} passed ${gone === 1 ? "its date" : "their date"} before you saw ${gone === 1 ? "it" : "them"}. Worth a quick look in case something was missed.</p><button id="deckexpired">Go through ${gone === 1 ? "it" : "them"}</button>` : ""}
+      ${deckMode === "expired" ? `<button id="decklive">Back to current suggestions</button>` : ""}
+      ${undo}</div></div>`;
+  }
+  const next = list[1];
+  return `<div class="deck">
+    <div class="deckhead"><span>${deckMode === "expired" ? "Passed their date" : "Is this yours?"}</span><span class="spacer"></span><span aria-live="polite">${deckDone[deckMode] + 1} of ${total}</span></div>
+    <div class="deckbar" role="progressbar" aria-label="Suggestions sorted" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${deckDone[deckMode]}"><span style="width:${total ? (deckDone[deckMode] / total) * 100 : 0}%"></span></div>
+    <div class="deckstack">
+      ${next ? `<div class="deckcard under" aria-hidden="true"></div>` : ""}
+      <article class="deckcard" id="deckcard" data-id="${e.id}">
+        <span class="stamp keep" aria-hidden="true">KEEP</span><span class="stamp drop" aria-hidden="true">DROP</span>
+        <div class="dkind"><span class="chip">${esc(KIND[e.kind] || e.kind)}</span><span class="when">${esc(dueLabel(e))}</span></div>
+        <h2>${esc(taskTitle(e.title))}</h2>
+        <div class="nmeta"><span>${esc(orgName(e.org))}</span>${e.chat_name ? `<span>${esc(e.chat_name)}</span>` : ""}${e.author ? `<span>${esc(e.author)}</span>` : ""}</div>
+        ${e.source_text && taskTitle(e.source_text) !== taskTitle(e.title) ? `<div class="src">${esc(e.source_text)}</div>` : ""}
+        ${e.reasons ? `<p class="hint">Found because: ${esc(e.reasons)}</p>` : ""}
+      </article>
+    </div>
+    <div class="deckacts">
+      <button class="big" id="deckdrop" aria-keyshortcuts="ArrowLeft x">← Drop</button>
+      <button class="big primary" id="deckkeep" aria-keyshortcuts="ArrowRight k">Keep →</button>
+    </div>
+    <div class="deckfoot">${undo}<span class="kbd">Drag the card, or press <kbd>←</kbd> <kbd>→</kbd></span></div>
+  </div>`;
+}
+
+function notes() {
   const d = A.dash;
-  return `<div class="panel"><h2>Review suggestions <span class="sub">things the rules found in your chats; accept what's yours, the rest is dropped</span></h2>
-    ${list(d.review, (e) => entryCard(e, { review: true }), "Nothing to review.")}</div>`;
+  return `<div class="grid two">
+    <section class="panel"><h2>Notes <span class="sub">things you told yourself</span></h2>
+      <div class="row" style="margin-bottom:var(--sp-3)"><input id="notetext" aria-label="New note" placeholder="e.g. send plate bukas 9pm #school" style="flex:1"><button class="primary" id="addnote">Add</button></div>
+      ${list(d.notes, (e) => entryCard(e), "No notes. Add one here, on Telegram, or by messaging yourself on Messenger.")}</section>
+    <section class="panel"><h2>Wins <span class="sub">evidence for LinkedIn later</span></h2>
+      <div class="row" style="margin-bottom:var(--sp-3)"><input id="wintext" aria-label="Win" placeholder="e.g. led the fair pubmats, 14 posts #north" style="flex:1"><button class="primary" id="addwin">Log win</button></div>
+      <p class="hint">Also: <code>/win …</code> on Telegram, or start a note to yourself with "win:".</p>
+      ${list(d.wins, (e) => `<div class="card"><div class="body"><div class="title">${esc(e.title)}</div><div class="meta"><span>${esc(orgName(e.org))}</span><span>${esc((e.created || "").slice(0, 10))}</span></div></div></div>`, "No wins logged yet.")}</section>
+  </div>`;
 }
 
 function mentions() {
-  const d = A.dash;
-  let ms = d.cards;
-  if (mentionFilter.org) ms = ms.filter((m) => (m.org || "") === mentionFilter.org);
-  if (mentionFilter.open) ms = ms.filter((m) => !m.handled);
-  return `<div class="panel"><h2>Mentions <span class="sub">one card per conversation that pings you, last 30 days; what still needs you comes first</span></h2>
-    <div class="row" style="margin-bottom:8px">
-      <select id="mforg" style="width:auto"><option value="">All orgs</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === mentionFilter.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
-      <label style="margin:0" class="row"><span class="switch"><input type="checkbox" id="mfunread" ${mentionFilter.open ? "checked" : ""}><span></span></span> Needs me only</label>
-      <span class="spacer"></span><button class="small" data-creadall>Mark all read</button>
-    </div>${list(ms, convCard, "No mentions.")}</div>`;
-}
-
-function wins() {
-  return `<div class="panel"><h2>Wins <span class="sub">your achievements log, the evidence for LinkedIn later</span></h2>
-    <div class="row" style="margin-bottom:10px"><input id="wintext" placeholder="e.g. led the Frosh Convocation pubmats, 14 posts #ecg" style="flex:1"><button class="primary" id="addwin">Log win</button></div>
-    <p class="hint">Also: <code>/win …</code> on Telegram, or start a note to yourself with "win:".</p>
-    ${list(A.dash.wins, (e) => `<div class="card"><div class="bar" style="background:${orgColor(e.org)}"></div><div class="body"><div class="title">${esc(e.title)}</div><div class="meta"><span>${esc(orgName(e.org))}</span><span>${esc((e.created || "").slice(0, 10))}</span></div></div></div>`, "No wins logged yet.")}</div>`;
+  const ms = visibleCards();
+  if ((selKey !== null || !narrow()) && !ms.some((c) => c.key === selKey)) selKey = (ms.find((c) => c.state === "needs") || (narrow() ? {} : ms[0]) || {}).key || null;  // null on narrow: you closed it
+  const all = visibleCards(true), hidden = all.length - ms.length;
+  const groups = STATES.map((s) => [s, ms.filter((c) => c.state === s), all.filter((c) => c.state === s).length]).filter(([, cs]) => cs.length);
+  const sel = ms.find((c) => c.key === selKey);
+  return `<div class="triage">
+    <div class="tside panel">
+      <div class="row" style="margin-bottom:6px">
+        <select id="mforg" style="width:auto" aria-label="Org"><option value="">All orgs</option>${Object.keys(A.orgs).map((k) => `<option value="${esc(k)}" ${k === mentionFilter.org ? "selected" : ""}>${esc(k.toUpperCase())}</option>`).join("")}</select>
+        <label style="margin:0" class="row"><span class="switch"><input type="checkbox" id="mfunread" ${mentionFilter.open ? "checked" : ""}><span></span></span> Needs me only</label>
+        <span class="spacer"></span>${A.dash.unread_mentions ? `<button class="small ghost" data-creadall>Mark all read</button>` : ""}
+      </div>
+      <div class="tlist" role="${narrow() ? "region" : "listbox"}" aria-label="Conversations that mention you">
+        ${groups.length ? groups.map(([s, cs, total]) => `<div class="grp" role="presentation">${STATE[s]} <span class="n2">${total}</span></div>${cs.map((c, i) => triageRow(c, i)).join("")}`).join("") : `<p class="empty">No conversations mention you in the last 30 days.</p>`}
+      </div>
+      ${hidden ? `<p class="hint">Showing the newest ${DONE_CAP} answered and ${DONE_CAP} FYI. <button class="small ghost" data-showall>Show all ${hidden} more</button></p>` : ""}
+      <div class="kbd"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>Enter</kbd> open · <kbd>d</kbd> done · <kbd>o</kbd> open in Messenger</div>
+    </div>
+    ${narrow() ? "" : detail(sel, false)}
+  </div>`;
 }
 
 function settingsView() {
   const p = A.profile, s = A.settings, tg = A.telegram;
-  const orgBoxes = Object.entries(A.orgs).map(([k, o]) => `<div class="orgbox" data-org="${esc(k)}"><h4>${esc(o.name)} <span class="chip">${o.chats} chats</span></h4>
+  const orgBoxes = Object.entries(A.orgs).map(([k, o]) => `<div class="orgbox" data-org="${esc(k)}"><h3>${esc(o.name)} <span class="chip">${o.chats} chat${o.chats === 1 ? "" : "s"}</span></h3>
       <div class="form">
-        <div><label>Your title</label><input data-of="my_title" value="${esc(o.my_title || "")}" placeholder="e.g. DCCO"></div>
-        <div><label>Other ways people refer to your role (comma separated)</label><input data-of="aliases" value="${esc((o.aliases || []).join(", "))}" placeholder="Deputy CCO, DCCO"></div>
-        <div><label>Committees you lead or handle</label><input data-of="committees" value="${esc((o.committees || []).join(", "))}" placeholder="Creatives, Publicity, Media, Linkages"></div>
-        <div><label>People above you (names or nicknames)</label><input data-of="above" value="${esc((o.above || []).join(", "))}" placeholder="Sam, Isabelle Reyes, Ystiphen"></div>
+        <div><label for="of-${esc(k)}-my_title">Your title</label><input id="of-${esc(k)}-my_title" data-of="my_title" value="${esc(o.my_title || "")}" placeholder="e.g. DCCO"></div>
+        <div><label for="of-${esc(k)}-aliases">Other ways people refer to your role (comma separated)</label><input id="of-${esc(k)}-aliases" data-of="aliases" value="${esc((o.aliases || []).join(", "))}" placeholder="Deputy CCO, DCCO"></div>
+        <div><label for="of-${esc(k)}-committees">Committees you lead or handle</label><input id="of-${esc(k)}-committees" data-of="committees" value="${esc((o.committees || []).join(", "))}" placeholder="Creatives, Publicity, Media, Linkages"></div>
+        <div><label for="of-${esc(k)}-above">People above you (names or nicknames)</label><input id="of-${esc(k)}-above" data-of="above" value="${esc((o.above || []).join(", "))}" placeholder="Sam, Isabelle Reyes, Ystiphen"></div>
       </div></div>`).join("");
-  const briefs = Object.entries(s.briefs).map(([k, b]) => `<div class="row" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-brief="${k}" ${b.on ? "checked" : ""}><span></span></span><span style="width:80px;text-transform:capitalize">${k}</span><input type="time" data-brieftime="${k}" value="${esc(b.at)}" style="width:130px"></div>`).join("");
-  return `<div class="grid" style="grid-template-columns:1fr 1fr">
+  const briefs = Object.entries(s.briefs).map(([k, b]) => `<div class="row" style="margin-bottom:6px"><span class="switch"><input type="checkbox" data-brief="${k}" aria-label="${k} brief" ${b.on ? "checked" : ""}><span></span></span><span style="width:80px;text-transform:capitalize">${k}</span><input type="time" data-brieftime="${k}" aria-label="${k} brief time" value="${esc(b.at)}" style="width:130px"></div>`).join("");
+  return `<div class="grid two">
   <section class="panel">
-    <h2>You</h2>
+    <h2>You<span class="spacer"></span><a class="small" href="/config">Chats &amp; orgs</a></h2>
     <div class="form">
-      <div><label>Your name in chats</label><input id="p_me" value="${esc(A.me || "")}"></div>
-      <div><label>Names and nicknames people use for you</label><input id="p_names" value="${esc(p.names.join(", "))}" placeholder="Aldrich, Aldrich Lotas, Ald"></div>
-      <div class="full"><label>Your notes-to-self chat (Messenger)</label>
+      <div><label for="p_me">Your name in chats</label><input id="p_me" value="${esc(A.me || "")}"></div>
+      <div><label for="p_names">Names and nicknames people use for you</label><input id="p_names" value="${esc(p.names.join(", "))}" placeholder="Aldrich, Aldrich Lotas, Ald"></div>
+      <div class="full"><label for="p_self">Your notes-to-self chat (Messenger)</label>
         <select id="p_self"><option value="">Not set</option>${A.selfCandidates.map((c) => `<option value="${esc(c.url)}" ${c.url === p.self_chat ? "selected" : ""}>${esc(c.name)}${c.preview ? " · " + esc(c.preview.slice(0, 40)) : ""}</option>`).join("")}${p.self_chat && !A.selfCandidates.some((c) => c.url === p.self_chat) ? `<option value="${esc(p.self_chat)}" selected>${esc(p.self_chat)}</option>` : ""}</select>
         <div class="hint">The chat with yourself you already use for notes. Everything you send there becomes a note in the hub on the next sync.${p.self_slug ? " Synced." : p.self_chat ? " Not synced yet." : ""}</div></div>
     </div>
@@ -328,35 +659,42 @@ function settingsView() {
     ${tg.from_env && tg.from_env.includes("telegram_token") ? `<p class="hint">Bot token${tg.from_env.includes("telegram_chat_id") ? " and your Telegram user id come" : " comes"} from <code>.env</code>${tg.bot_name ? ` (@${esc(tg.bot_name)})` : ""}. Edit that file to change ${tg.from_env.includes("telegram_chat_id") ? "them" : "it"}, then restart the hub.${tg.paired ? " Press Start in the bot's chat once, or Telegram won't let it message you." : ""}</p>` : ""}
     <ol class="steps" ${tg.from_env && tg.from_env.includes("telegram_token") && tg.paired ? 'hidden' : ""}>
       <li>In Telegram, open <b>@BotFather</b>, send <code>/newbot</code> and follow the steps. Copy the token it gives you.
-        <div class="row" style="margin-top:6px"><input id="tgtoken" type="password" placeholder="${tg.has_token ? "Token saved; paste a new one to replace it" : "Paste the bot token"}" style="flex:1"><button class="small" id="savetoken">Save</button></div>
+        <div class="row" style="margin-top:6px"><input id="tgtoken" type="password" aria-label="Bot token" placeholder="${tg.has_token ? "Token saved; paste a new one to replace it" : "Paste the bot token"}" style="flex:1"><button class="small" id="savetoken">Save</button></div>
         ${tg.bot_name ? `<div class="hint">Bot: @${esc(tg.bot_name)}</div>` : ""}</li>
       <li>Send <code>/start ${esc(tg.pair_code || "")}</code> to your bot${tg.bot_name ? ` (@${esc(tg.bot_name)})` : ""}. Only that chat will ever get messages.</li>
     </ol>
     ${tg.error ? `<p class="hint" style="color:var(--danger)">${esc(tg.error)}</p>` : ""}
-    <div class="row"><button class="small" id="tgtest" ${tg.paired ? "" : "disabled"}>Send me today's brief</button>${tg.paired && !(tg.from_env || []).includes("telegram_chat_id") ? `<button class="small ghost" id="tgunpair">Unpair</button>` : ""}</div>
+    <div class="row"><button class="small" id="tgtest" ${tg.paired ? "" : 'disabled aria-describedby="tgtest-why"'}>Send me today's brief</button>${tg.paired ? "" : `<span class="hint" id="tgtest-why">Pair the bot first (step 2).</span>`}${tg.paired && !(tg.from_env || []).includes("telegram_chat_id") ? `<button class="small ghost" id="tgunpair">Unpair</button>` : ""}</div>
     <p class="hint">Telegram gets only what you need to know: org, type, time and a cleaned title (no links, contacts or other people's @mentions). Message text stays on this laptop.</p>
   </section>
   <section class="panel">
     <h2>Briefs and alerts</h2>
     ${briefs}
     <div class="form" style="margin-top:8px">
-      <div><label>Quiet from</label><input type="time" id="q_start" value="${esc(s.quiet.start)}"></div>
-      <div><label>Quiet until</label><input type="time" id="q_end" value="${esc(s.quiet.end)}"></div>
-      <div><label>Alerts (meeting in 30 min, due within 2 h / 24 h)</label><span class="switch"><input type="checkbox" id="alerts" ${s.alerts ? "checked" : ""}><span></span></span></div>
-      <div><label>Most alerts per day</label><input type="number" id="pingcap" min="0" max="50" value="${s.ping_cap}"></div>
-      <div class="full"><label>What Telegram may show for things found in chats</label>
+      <div><label for="q_start">Quiet from</label><input type="time" id="q_start" value="${esc(s.quiet.start)}"></div>
+      <div><label for="q_end">Quiet until</label><input type="time" id="q_end" value="${esc(s.quiet.end)}"></div>
+      <div><label for="alerts">Alerts (meeting in 30 min, due within 2 h / 24 h)</label><span class="switch"><input type="checkbox" id="alerts" ${s.alerts ? "checked" : ""}><span></span></span></div>
+      <div><label for="pingcap">Most alerts per day</label><input type="number" id="pingcap" min="0" max="50" value="${s.ping_cap}"></div>
+      <div class="full"><label for="detail">What Telegram may show for things found in chats</label>
         <select id="detail"><option value="short" ${s.detail === "short" ? "selected" : ""}>Short: org, type, time and a cleaned title</option><option value="minimal" ${s.detail === "minimal" ? "selected" : ""}>Minimal: org, type and time only</option></select></div>
-      <div class="full"><label>One-line summaries on mention cards</label>
+      <div class="full"><label for="summaries">One-line summaries on mention cards</label>
         <select id="summaries"><option value="off" ${s.summaries !== "lite" ? "selected" : ""}>Off: no tokens (you can still press Summarise on a card)</option><option value="lite" ${s.summaries === "lite" ? "selected" : ""}>Lite: Haiku summarises up to 5 new conversations that need you, each time chats are read</option></select>
         <div class="hint">Summaries send that conversation's text to Claude through your Claude plan. Everything else stays on this laptop.</div></div>
     </div>
     <div class="row" style="margin-top:10px"><button class="primary" id="savesettings">Save</button></div>
   </section>
   <section class="panel">
+    <h2>Live sync</h2>
+    <div class="row" style="margin-bottom:8px"><span class="switch"><input type="checkbox" id="livesync" aria-label="Live sync" ${s.live ? "checked" : ""}><span></span></span> Fetch chats as they change, while the hub is running</div>
+    <p class="hint" role="status" id="livestate">${liveLine()}</p>
+    ${A.live && A.live.needs_you ? `<div class="row" style="margin-top:8px"><button class="small primary" id="liveresume">Resume</button></div>` : ""}
+    <p class="hint">The hub's browser stays open, minimised, and reads your chat list without opening a chat. It opens a chat when its row changes, and looks through every chat slowly in case the list missed one. It stops on any login, PIN or checkpoint page until you press Resume.</p>
+  </section>
+  <section class="panel">
     <h2>This laptop</h2>
-    <div class="row" style="margin-bottom:8px"><span class="switch"><input type="checkbox" id="startup" ${A.startup ? "checked" : ""}><span></span></span> Start Messenger Hub with Windows</div>
-    <div class="row"><button class="small" id="deskshort">${A.desktopShortcut ? "Desktop shortcut ✓" : "Add desktop shortcut"}</button><button class="small" id="rescan">Re-scan chats (no tokens)</button><button class="small" data-act-sync>Sync now</button><span class="spacer"></span><button class="small ghost" id="quit">Quit hub</button></div>
-    <p class="hint">Last read ${esc((A.dash.last_process || "never").replace("T", " "))}. "Sync now" opens the hub's browser window to fetch new messages from your chosen chats. Closing this window keeps the hub running for briefs; "Quit hub" stops it.</p>
+    <div class="row" style="margin-bottom:8px"><span class="switch"><input type="checkbox" id="startup" aria-label="Start Messenger Hub with Windows" ${A.startup ? "checked" : ""}><span></span></span> Start Messenger Hub with Windows</div>
+    <div class="row"><button class="small" id="deskshort">${A.desktopShortcut ? "Desktop shortcut ✓" : "Add desktop shortcut"}</button><button class="small" id="rescan">Re-scan chats (no tokens)</button><button class="small" data-act-sync>Sync now</button><button class="small" data-act-sync data-full="1">Full sync</button><span class="spacer"></span><button class="small ghost" id="quit">Quit hub</button></div>
+    <p class="hint">Last read ${esc((A.dash.last_process || "never").replace("T", " "))}. "Sync now" opens the hub's browser window, reads your chat list and fetches only chats that changed. "Full sync" opens every chosen chat. Closing this window keeps the hub running for briefs; "Quit hub" stops it.</p>
   </section>
   </div></div>`;
 }
@@ -364,21 +702,71 @@ function settingsView() {
 function render() {
   if (!A) return;
   renderTabs();
-  const views = { home, review, mentions, wins, settings: settingsView };
+  if (BAR) { const v = $("#notetext") && $("#notetext").value; $("#main").innerHTML = barView(); if (v) $("#notetext").value = v; return; }
+  document.documentElement.style.setProperty("--head", $("header").offsetHeight + "px");
+  const views = { home, review, mentions, notes, settings: settingsView };
   const keepFocus = document.activeElement && document.activeElement.id;
-  $("#main").innerHTML = views[tab]();
+  const keepRow = document.activeElement && document.activeElement.matches(".trow") && document.activeElement.dataset.sel;
+  const keep = [".tlist", "#dlines"].map((q) => [q, document.querySelector(q) && document.querySelector(q).scrollTop]);
+  const prevSel = render.sel;
+  $("header").inert = !!lightbox;
+  $("#main").innerHTML = (lightbox ? `<div inert>${views[tab]()}</div>` : views[tab]()) + (lightbox ? `<div class="lb" role="dialog" aria-modal="true" aria-label="${esc(lightbox.label)}" data-lbclose="1">${lightbox.type === "video" ? `<video src="${esc(lightbox.url)}" controls autoplay aria-label="${esc(lightbox.label)}"></video>` : `<img src="${esc(lightbox.url)}" alt="${esc(lightbox.label)}">`}<button class="small" data-lbclose="1">Close (Esc)</button></div>` : "");
+  render.sel = selKey;
+  for (const [q, top] of keep) if (top != null && document.querySelector(q) && (q !== "#dlines" || prevSel === selKey)) document.querySelector(q).scrollTop = top;
+  if (tab === "mentions" && prevSel !== selKey) {
+    const ping = document.querySelector("#dlines [data-ping]");
+    if (ping) ping.scrollIntoView({ block: "center" });
+  }
+  if (tab === "mentions" || tab === "home") trackTriage();
   if (keepFocus && document.getElementById(keepFocus) && tab !== "settings") document.getElementById(keepFocus).focus();
+  const row = keepRow && document.querySelector(`.trow[data-sel="${CSS.escape(keepRow)}"]`);
+  if (row) row.focus({ preventScroll: true });  // background refreshes and api replies re-render under you
+  if (lightbox && !document.activeElement.closest(".lb")) $(".lb button").focus({ preventScroll: true });
+}
+
+// The full-size viewer remembers its thumbnail by URL (and which copy of it), since render() rebuilds #main.
+function openLightbox(m) {
+  const same = [...document.querySelectorAll(`[data-lb="${CSS.escape(m.dataset.lb)}"]`)];
+  lightbox = { url: m.dataset.lb, type: m.dataset.lbt, label: m.getAttribute("aria-label") || m.alt || "Attachment", n: same.indexOf(m) };
+  render();
+}
+function closeLightbox() {
+  const { url, n } = lightbox;
+  lightbox = null; render();
+  const t = document.querySelectorAll(`[data-lb="${CSS.escape(url)}"]`)[n];
+  if (t) t.focus({ preventScroll: true });
 }
 
 // --- events ------------------------------------------------------------------------------------
 const csv = (v) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
 document.addEventListener("click", async (ev) => {
+  if (ev.target.closest("[data-lbclose]") && (ev.target.dataset.lbclose || ev.target.tagName === "BUTTON")) { closeLightbox(); return; }
+  const m = ev.target.closest("[data-lb]");
+  if (m) { ev.preventDefault(); openLightbox(m); return; }
+  const row = ev.target.closest("[data-sel]");
+  if (row && !ev.target.closest("button, a")) { select(row.dataset.sel, !!row.dataset.gotab); return; }
+  const nr = ev.target.closest(".nrow");
+  if (nr && !BAR && !nr.classList.contains("hero") && !ev.target.closest("button, a, .nmore")) { toggleRow(nr.dataset.n); return; }
   const t = ev.target.closest("button, a, [data-tab]");
   if (!t) return;
+  if (t.dataset.ext) { ev.preventDefault(); return api("open-link", { url: t.href }); }
+  if (t.dataset.ev) api("event", { kind: t.dataset.ev }).catch(() => {});
   if (t.dataset.tab) { ev.preventDefault(); tab = t.dataset.tab; editing = null; render(); window.scrollTo(0, 0); return; }
-  if (t.dataset.href) { location.href = t.dataset.href; return; }
-  if (t.dataset.mode && window.pywebview) { await window.pywebview.api.set_mode(t.dataset.mode); document.body.classList.toggle("widget", t.dataset.mode === "widget"); render(); return; }
+  if (t.dataset.res) return resolveRow(t.dataset.res, t.dataset.e, t.dataset.c);
+  if (t.dataset.reopen) return api("reopen", { card: t.dataset.reopen }).then(() => toast("Back on your list"));
+  if (t.dataset.nopen) { tab = "mentions"; selKey = t.dataset.nopen; render(); return; }
+  if (t.hasAttribute("data-allnext")) { showAllNext = true; render(); return; }
+  if (t.id === "notebtn") return toggleNote();
+  if (t.id === "deckkeep") return deckDecide("keep");
+  if (t.id === "deckdrop") return deckDecide("drop");
+  if (t.id === "deckundo") return deckUndo();
+  if (t.id === "deckexpired") { deckMode = "expired"; deckLast = null; render(); return; }
+  if (t.id === "decklive") { deckMode = "live"; deckLast = null; render(); return; }
+  if (t.id === "addnote") return addNote();
+  if (t.id === "floatbtn" && window.pywebview) return window.pywebview.api.open_bar();
+  if (t.id === "barhub") return window.pywebview ? window.pywebview.api.close_bar() : undefined;
+  if (t.id === "barmore") { barOpen = !barOpen; if (window.pywebview) await window.pywebview.api.size_bar(barOpen); render(); return; }
   const id = t.dataset.id && +t.dataset.id;
   const act = t.dataset.act;
   if (act === "done") return api("entry", { id, status: "done", review: "accepted" }).then(() => toast("Done ✓"));
@@ -394,14 +782,24 @@ document.addEventListener("click", async (ev) => {
     editing = null;
     return api("entry", { id, title: box.querySelector('[data-f="title"]').value, due: due || null, due_has_time: due ? 1 : 0, org: box.querySelector('[data-f="org"]').value || null, review: "accepted" });
   }
-  if (t.dataset.cread) return api("card-read", { key: t.dataset.cread, unread: !!t.dataset.unread });
+  if (t.hasAttribute("data-showall")) {  // the button goes away: focus lands on the first row it revealed
+    const shown = new Set(visibleCards().map((c) => c.key));
+    const first = visibleCards(true).find((c) => !shown.has(c.key));
+    showAllDone = true; render();
+    const row = first && document.querySelector(`.trow[data-sel="${CSS.escape(first.key)}"]`);
+    if (row) row.focus();
+    return;
+  }
+  if (t.dataset.cdone) return markDone(t.dataset.cdone, !!t.dataset.undo);
   if (t.hasAttribute("data-creadall")) return api("card-read", { all: true }).then(() => toast("All caught up"));
   if (t.dataset.cexpand) { ev.preventDefault(); openConv.has(t.dataset.cexpand) ? openConv.delete(t.dataset.cexpand) : openConv.add(t.dataset.cexpand); render(); return; }
   if (t.dataset.copen) { ev.preventDefault(); return api("open-chat", { channel: t.dataset.copen, key: t.dataset.key }); }
   if (t.dataset.csum) { ev.preventDefault(); toast("Summarising with Haiku…"); return api("summarise", { key: t.dataset.csum }); }
   if (t.id === "quickadd") return quickAdd();
   if (t.id === "addwin") { const v = $("#wintext").value.trim(); if (v) return api("capture", { text: "/win " + v }).then(() => toast("Win logged")); return; }
-  if (t.id === "syncbtn" || t.hasAttribute("data-act-sync")) return api("sync").then(() => toast("Syncing in the hub's browser window…"));
+  if (t.id === "liveresume") return api("live-resume").then(() => toast("Live sync resumed"));
+  if (t.id === "syncbtn" && A.syncing) return api("sync-stop").then(() => toast("Stopping: this may take a moment if files are downloading"));
+  if (t.id === "syncbtn" || t.hasAttribute("data-act-sync")) return api("sync", t.dataset.full ? { full: true } : {}).then(() => toast("Syncing in the hub's browser window…"));
   if (t.id === "saveprofile") {
     const orgs = {};
     document.querySelectorAll(".orgbox").forEach((b) => {
@@ -425,15 +823,164 @@ document.addEventListener("click", async (ev) => {
 document.addEventListener("change", (ev) => {
   const t = ev.target;
   if (t.id === "startup") api("startup", { on: t.checked }).then(() => toast(t.checked ? "Will start with Windows" : "Won't start with Windows"));
+  if (t.id === "livesync") api("settings", { live: t.checked }).then(() => toast(t.checked ? "Live sync is on" : "Live sync is off"));
   if (t.id === "mforg") { mentionFilter.org = t.value; render(); }
   if (t.id === "mfunread") { mentionFilter.open = t.checked; render(); }
 });
+
+function toggleRow(key) {
+  openNow.has(key) ? openNow.delete(key) : openNow.add(key);
+  render();
+  const r = document.querySelector(`.nrow[data-n="${CSS.escape(key)}"]`);
+  if (r) r.focus({ preventScroll: true });
+}
+
+function resolveRow(how, entry, card) {
+  const rows = [...document.querySelectorAll(".nrow")], i = rows.findIndex((r) => r.contains(document.activeElement));
+  return api("resolve", { how, entry: entry ? +entry : null, card: card || null }).then(() => {
+    toast(how === "done" ? "Done" : "Dropped");
+    const after = document.querySelectorAll(".nrow"), next = after[Math.max(0, Math.min(i, after.length - 1))];
+    if (next && i >= 0) next.focus({ preventScroll: true });
+  });
+}
+
+function toggleNote(open) {
+  const q = $("#quickrow"), show = open === undefined ? q.hidden : open;
+  q.hidden = !show; $("#notebtn").setAttribute("aria-expanded", show);
+  document.documentElement.style.setProperty("--head", $("header").offsetHeight + "px");
+  if (show) $("#quick").focus(); else $("#notebtn").focus();
+}
+
+// The deck: the card leaves in the direction you chose, then the server's next list renders.
+function deckDecide(how) {
+  const c = $("#deckcard");
+  if (!c || deckBusy) return;
+  deckBusy = true;
+  const id = +c.dataset.id;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduce) { c.style.transition = "transform .16s ease-out, opacity .16s"; c.style.transform = `translateX(${how === "keep" ? 110 : -110}%) rotate(${how === "keep" ? 8 : -8}deg)`; c.style.opacity = "0"; }
+  setTimeout(() => {
+    deckLast = { id, mode: deckMode };
+    deckDone[deckMode]++;
+    api("entry", how === "keep" ? { id, review: "accepted" } : { id, review: "rejected", status: "dismissed" }).finally(() => { deckBusy = false; });
+  }, reduce ? 0 : 160);
+}
+let deckBusy = false;
+
+function deckUndo() {
+  if (!deckLast) return;
+  const { id, mode } = deckLast;
+  deckLast = null; deckMode = mode; deckDone[mode] = Math.max(0, deckDone[mode] - 1);
+  return api("entry", { id, review: "unreviewed", status: "open" }).then(() => toast("Put back"));
+}
+
+// Swipe: drag past a third of the way to the edge of the card and let go.
+let drag = null;
+document.addEventListener("pointerdown", (ev) => {
+  const c = ev.target.closest("#deckcard");
+  if (!c || ev.button !== 0 || ev.target.closest("a, button")) return;
+  drag = { c, x: ev.clientX, moved: 0 };
+  c.setPointerCapture(ev.pointerId);
+  c.classList.add("dragging");
+});
+document.addEventListener("pointermove", (ev) => {
+  if (!drag) return;
+  drag.moved = ev.clientX - drag.x;
+  drag.c.style.transform = `translateX(${drag.moved}px) rotate(${drag.moved / 40}deg)`;
+  drag.c.style.setProperty("--keep", Math.max(0, Math.min(1, drag.moved / 120)));
+  drag.c.style.setProperty("--drop", Math.max(0, Math.min(1, -drag.moved / 120)));
+});
+function endDrag() {
+  if (!drag) return;
+  const { c, moved } = drag;
+  drag = null;
+  c.classList.remove("dragging");
+  if (Math.abs(moved) > c.offsetWidth / 3) return deckDecide(moved > 0 ? "keep" : "drop");
+  c.style.transform = ""; c.style.setProperty("--keep", 0); c.style.setProperty("--drop", 0);
+}
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+
+function select(key, gotoTab) {
+  if (narrow() && selKey === key && !gotoTab) selKey = null; else selKey = key;  // narrow: tap again to close
+  if (gotoTab) tab = "mentions";
+  render();
+  const r = document.querySelector(`.trow[data-sel="${CSS.escape(key)}"]`);  // by key: a collapsed row keeps focus
+  if (r) { r.focus({ preventScroll: true }); r.scrollIntoView({ block: "nearest" }); }
+}
+
+// A follow-up you've dealt with: it goes to Answered, and the next thing waiting on you is selected.
+function markDone(key, undo) {
+  const ms = visibleCards(), i = ms.findIndex((c) => c.key === key);
+  const next = ms.slice(i + 1).find((c) => c.state === "followup" || c.state === "needs") || ms.find((c) => c.key !== key && (c.state === "followup" || c.state === "needs"));
+  return api(undo ? "reopen" : "resolve", { card: key }).then(() => {
+    toast(undo ? "Back in Follow up" : "Done. Moved to Answered");
+    if (!undo && next) select(next.key);
+  });
+}
+
+// Time to clear: from opening Mentions with something waiting to nothing left (counted in the event log).
+function trackTriage() {
+  const needs = A.dash.cards.filter((c) => c.state === "needs" && c.unread).length;
+  if (needs && !triageStarted) { triageStarted = Date.now(); api("event", { kind: "mentions-open", ref: String(needs) }).catch(() => {}); }
+  else if (!needs && triageStarted) { api("event", { kind: "mentions-clear", ref: String(Math.round((Date.now() - triageStarted) / 1000)) }).catch(() => {}); triageStarted = null; }
+}
+
+document.addEventListener("keydown", (ev) => {
+  if (lightbox) {  // modal: the page behind is inert; Esc closes, Tab wraps (and still walks the video's own controls)
+    if (ev.key === "Escape") { ev.preventDefault(); closeLightbox(); }
+    else if (ev.key === "Tab") {
+      const f = [...document.querySelectorAll(".lb video, .lb button")];
+      if (f.length === 1 || (!ev.shiftKey && document.activeElement === f[f.length - 1])) { ev.preventDefault(); f[0].focus(); }
+    }
+    return;
+  }
+  if (ev.key === "Escape" && !$("#quickrow").hidden) { ev.preventDefault(); toggleNote(false); return; }
+  const typing = ev.ctrlKey || ev.metaKey || ev.altKey || ev.target.closest("input, textarea, select");
+  if (BAR) return;
+  if (!typing && ev.key === "n") { ev.preventDefault(); toggleNote(true); return; }
+  if (!typing && tab === "review") {
+    if (ev.key === "ArrowRight" || ev.key === "k") { ev.preventDefault(); deckDecide("keep"); }
+    else if (ev.key === "ArrowLeft" || ev.key === "x") { ev.preventDefault(); deckDecide("drop"); }
+    else if (ev.key === "z") { ev.preventDefault(); deckUndo(); }
+    return;
+  }
+  if (!typing && tab === "home" && !ev.target.closest("button, a")) {
+    const rows = [...document.querySelectorAll(".nrow")], at = rows.indexOf(ev.target.closest(".nrow"));
+    const go = (r) => { if (r) { ev.preventDefault(); r.focus(); r.scrollIntoView({ block: "nearest" }); } };
+    if (ev.key === "j" || ev.key === "ArrowDown") go(rows[at + 1]);
+    else if (ev.key === "k" || ev.key === "ArrowUp") go(rows[Math.max(0, at - 1)]);
+    else if (at >= 0 && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); toggleRow(rows[at].dataset.n); }
+    else if (at >= 0 && (ev.key === "d" || ev.key === "x")) { ev.preventDefault(); rows[at].querySelector(`[data-res="${ev.key === "d" ? "done" : "drop"}"]`).focus(); rows[at].querySelector(`[data-res="${ev.key === "d" ? "done" : "drop"}"]`).click(); }
+    return;
+  }
+  if (tab !== "mentions" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.target.closest("input, textarea, select")) return;
+  const m = ev.target.closest("[data-lb]");
+  if (m && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); openLightbox(m); return; }
+  const ms = visibleCards(), i = ms.findIndex((c) => c.key === selKey), c = ms[i];
+  const arrows = !ev.target.closest("#dlines");  // arrows scroll the conversation pane
+  if (ev.key === "j" || (ev.key === "ArrowDown" && arrows)) { ev.preventDefault(); if (ms[i + 1] || (i < 0 && ms[0])) select(ms[i + 1].key); }
+  else if (ev.key === "k" || (ev.key === "ArrowUp" && arrows)) { ev.preventDefault(); if (i > 0) select(ms[i - 1].key); }
+  else if ((ev.key === "Enter" || (ev.key === " " && narrow())) && ev.target.closest(".trow")) { ev.preventDefault(); if (narrow()) select(ev.target.closest(".trow").dataset.sel); else { const d = $("#dlines"); if (d) d.focus(); } }
+  else if ((ev.key === "Home" || ev.key === "End") && ms.length && ev.target.closest(".trow")) { ev.preventDefault(); select(ms[ev.key === "Home" ? 0 : ms.length - 1].key); }
+  else if ((ev.key === "d" || ev.key === "e") && c && (c.state === "followup" || c.state === "needs")) { ev.preventDefault(); markDone(c.key); }
+  else if (ev.key === "o" && c) { ev.preventDefault(); api("open-chat", { channel: c.channel, key: c.key }); }
+});
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
 
 async function quickAdd() {
   const v = $("#quick").value.trim();
   if (!v) return;
   await api("capture", { text: v });
   $("#quick").value = "";
+  toast("Saved");
+  toggleNote(false);
+}
+async function addNote() {
+  const v = $("#notetext").value.trim();
+  if (!v) return;
+  await api("capture", { text: v });
   toast("Saved");
 }
 $("#quick").addEventListener("keydown", (e) => { if (e.key === "Enter") quickAdd(); });
@@ -443,10 +990,19 @@ window.addEventListener("pywebviewready", () => document.body.classList.add("has
 // Refresh every minute (countdowns, new messages processed in the background), but never while typing.
 async function refresh() {
   const busy = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
-  if (busy || editing || tab === "settings") return;
-  try { A = await (await fetch("/api/app")).json(); render(); } catch { /* hub stopped */ }
+  if (busy || editing || lightbox || drag || deckBusy || tab === "settings") return;
+  try { A = await (await fetch("/api/app")).json(); offline = false; render(); } catch { offline = true; if (A) renderTabs(); }
 }
 setInterval(refresh, 60000);
+// While a sync runs, keep its button true; when it ends, show what it brought in.
+setInterval(async () => {
+  if (!A || !A.syncing) return;
+  try {
+    A = await (await fetch("/api/app")).json();
+    renderTabs();
+    if (!A.syncing) refresh();
+  } catch { /* hub stopped */ }
+}, 3000);
 api();
 </script>
 </body>

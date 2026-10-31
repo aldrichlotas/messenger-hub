@@ -227,6 +227,8 @@ function renderEditor() {
       <div class="seg"><button data-mode="suggested" class="${view.mode === "suggested" ? "on" : ""}">Matches</button><button data-mode="all" class="${view.mode === "all" ? "on" : ""}">All chats</button></div>
       ${unadded.length > 1 ? `<button class="small" id="addall">+ Add all ${unadded.length} shown</button>` : ""}
       <button class="small" id="discover" ${S.discovering ? "disabled" : ""}>${S.discovering ? "Refreshing…" : "Refresh chat list"}</button>
+      ${S.discovering ? `<button class="small" id="stopdiscover">Stop</button>` : ""}
+      <label class="small"><input type="checkbox" id="discoverall" ${view.findAll ? "checked" : ""}> Find all chats, even ones quiet for over a year</label>
     </div>
     <div class="list">${poolRows || `<p class="empty">${view.mode === "suggested" && !re ? 'Set "Suggest chats whose name matches" above, or switch to All chats.' : "No chats match."}</p>`}</div>
     <div class="toolbar" style="margin-top:12px">
@@ -280,8 +282,12 @@ document.addEventListener("click", async (e) => {
     change(() => { if (!addChat(org, v.split("?")[0], null)) toast("Already in this org"); });
   }
   else if (t.dataset.mode) { view.mode = t.dataset.mode; render(); }
+  else if (t.id === "stopdiscover") {
+    await fetch("/api/discover-stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    toast("Stopping. Chats found so far are kept.");
+  }
   else if (t.id === "discover") {
-    await fetch("/api/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    await fetch("/api/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: !!view.findAll }) });
     S.discovering = true; render(); toast("Reading your chat list in the hub's browser window…");
     const poll = setInterval(async () => {
       const s = await (await fetch("/api/state")).json();
@@ -291,6 +297,7 @@ document.addEventListener("click", async (e) => {
 });
 
 document.addEventListener("change", (e) => {
+  if (e.target.id === "discoverall") view.findAll = e.target.checked;
   const t = e.target; const org = cfg.orgs[current];
   if (t.dataset.toggle !== undefined) change(() => { org.chats[+t.dataset.toggle].enabled = t.checked; });
 });

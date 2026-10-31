@@ -1,10 +1,12 @@
 // Injected into facebook.com/messages to list the conversations in the left-hand chat list.
 // Installs window.__hsd with:
 //   collect()     record every chat link currently mounted; returns how many are known
-//   scrollDown()  scroll the chat list so Messenger loads more conversations; false if it can't
+//   step()        scroll the chat list one screen further: { ok, end }. ok is false while the list is too
+//                 short to scroll, which it is at first: it starts with about 7 rows and grows
 //   list()        every chat seen so far: { id, url, lines } (the link's visible text lines)
 // Relies only on links to /messages/t/<id> or /messages/e2ee/t/<id> outside the open
-// conversation ([role="log"]); class names are obfuscated.
+// conversation ([role="log"]); class names are obfuscated. Messenger mounts only about 17 rows at a
+// time, so the list has to be walked a screen at a time: jumping to the end skips everything between.
 (() => {
   if (window.__hsd) return;
 
@@ -41,20 +43,21 @@
 
   function scroller() {
     if (sc && sc.isConnected) return sc;
-    const first = links()[0];
-    for (let el = first; el && el !== document.body; el = el.parentElement) {
-      if (scrollable(el)) return (sc = el);
+    for (const a of links()) {
+      for (let el = a; el && el !== document.body; el = el.parentElement) {
+        if (scrollable(el)) return (sc = el);
+      }
     }
     return null;
   }
 
-  function scrollDown() {
+  function step() {
     const el = scroller();
-    if (!el) return false;
-    el.scrollTop = el.scrollHeight;
+    if (!el) return { ok: false, end: false };
+    el.scrollTop += Math.max(100, el.clientHeight * 0.7);
     el.dispatchEvent(new Event('scroll'));
-    return true;
+    return { ok: true, end: el.scrollTop + el.clientHeight >= el.scrollHeight - 4 };
   }
 
-  window.__hsd = { collect, scrollDown, list: () => [...seen.values()] };
+  window.__hsd = { collect, step, list: () => [...seen.values()] };
 })();

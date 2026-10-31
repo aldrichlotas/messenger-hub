@@ -80,6 +80,21 @@ class SplitMentionTests(unittest.TestCase):
                          (2, 3, "Kim", "sige", {"reply_to": "1", "reply_target": "Aldrich"}))
         self.assertFalse([e for e in es if e["ref"] == "eb#2"])
 
+    def test_rescan_after_accepting_a_raised_finding(self):
+        es = self.ingest((1, 0, "Sam", "pubmat for the GA, deadline Friday 5pm"), (2, 1, "Sam", "@Aldrich"))
+        self.st.update_entry(es[0]["id"], review="accepted")
+        process.rescan(self.st, CFG)  # the deadline comes back beside your task; raising it to a task again must not clash
+        kept = self.st.one("SELECT * FROM entry WHERE id = ?", (es[0]["id"],))
+        self.assertEqual((kept["kind"], kept["review"]), ("task", "accepted"))
+
+    def test_a_rescan_that_fails_changes_nothing(self):
+        self.ingest((1, 0, "Sam", "pubmat for the GA, deadline Friday 5pm"), (2, 1, "Sam", "@Aldrich"))
+        before = self.st.q("SELECT id, kind FROM entry"), self.st.q("SELECT item_id FROM mention")
+        with mock.patch.object(process, "_derive", side_effect=[None, RuntimeError("boom")]):
+            with self.assertRaises(RuntimeError):
+                process.rescan(self.st, CFG)
+        self.assertEqual((self.st.q("SELECT id, kind FROM entry"), self.st.q("SELECT item_id FROM mention")), before)
+
 
 if __name__ == "__main__":
     unittest.main()

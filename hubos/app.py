@@ -8,21 +8,25 @@ Running `hub.py app` again just opens another window onto the running hub.
 
 import datetime as dt
 import json
+import mimetypes
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 import config_ui
 import hub
 
 from . import bot as botmod
-from . import process, settings, threads
+from . import live, process, settings, threads
 from .store import Store
 
 PORT = 8765
+BAR_WIDTH, BAR_SHUT, BAR_OPEN = 640, 48, 440
 APP_UI = os.path.join(hub.ROOT, "ui", "app.html")
 STARTUP_FILE = os.path.join(
     os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "Messenger Hub.vbs"
@@ -30,6 +34,7 @@ STARTUP_FILE = os.path.join(
 
 STORE = None
 BOT = None
+WORKER = None
 _sync_lock = threading.Lock()
 _stop = threading.Event()
 
@@ -81,11 +86,22 @@ def self_chat_candidates(cfg: dict) -> list:
     return out[:6]
 
 
+def synced_at(cfg: dict):
+    """When a chat last changed on disk: what a sync brought in, as opposed to the processor re-reading it."""
+    times = []
+    for slug in process.channels(cfg):
+        path = os.path.join(process.CHATS, slug, "messages.jsonl")
+        if os.path.exists(path):
+            times.append(os.path.getmtime(path))
+    return dt.datetime.fromtimestamp(max(times)).isoformat(timespec="seconds") if times else None
+
+
 def app_state() -> dict:
     cfg = hub.load_config()
     d = process.dashboard(STORE, cfg=cfg)
     return {
         "dash": d,
+        "synced_at": synced_at(cfg),
         "me": cfg.get("me"),
         "profile": settings.profile(cfg),
         "settings": settings.get(cfg),
@@ -97,7 +113,9 @@ def app_state() -> dict:
         "telegram": BOT.status() if BOT else {},
         "startup": os.path.exists(STARTUP_FILE),
         "desktopShortcut": os.path.exists(DESKTOP_FILE),
-        "syncing": _sync_lock.locked(),
+        "syncing": _sync_lock.locked() or bool(WORKER and WORKER.syncing),
+        "stopping": bool(WORKER and WORKER.syncing) and os.path.exists(hub.STOP_FILE),
+        "live": WORKER.status() if WORKER else {"state": "stopped"},
     }
 
 
@@ -142,6 +160,10 @@ def save_settings(body: dict) -> None:
         cur["detail"] = body["detail"]
     if body.get("summaries") in ("off", "lite"):
         cur["summaries"] = body["summaries"]
+    if "live" in body:
+        cur["live"] = bool(body["live"])
+    if "live_limit" in body:
+        cur["live_limit"] = max(20, min(1000, int(body["live_limit"])))
     if "process_minutes" in body:
         cur["process_minutes"] = max(1, min(120, int(body["process_minutes"])))
     for b in cur["briefs"].values():
@@ -156,6 +178,39 @@ def find_cards(cfg: dict, key=None) -> list:
     return [c for c in cs if key is None or c["key"] == key]
 
 
+def linked_entries(card: dict) -> list:
+    """The entries found in a conversation's pings: dealing with the conversation deals with them."""
+    ids = ",".join(str(int(i)) for i in card["ping_items"]) or "0"
+    return [r["id"] for r in STORE.q(f"SELECT id FROM entry WHERE item_id IN ({ids})")]
+
+
+def resolve(cfg: dict, body: dict) -> None:
+    """Done, or not for me: one action that closes the entry and its conversation together."""
+    keep = body.get("how") != "drop"
+    ids = {int(body["entry"])} if body.get("entry") else set()
+    for c in find_cards(cfg, str(body["card"])) if body.get("card") else []:
+        threads.mark_read(STORE, c["key"], c["last_ping"], c["ping_items"])
+        threads.mark_done(STORE, c["key"], c["end"])
+        ids.update(linked_entries(c))
+    for i in ids:
+        e = STORE.one("SELECT status, review FROM entry WHERE id = ?", (i,))
+        if e and e["status"] == "open":
+            review = e["review"] if e["review"] != "unreviewed" else "accepted" if keep else "rejected"
+            STORE.update_entry(i, status="done" if keep else "dismissed", review=review)
+
+
+def reopen(cfg: dict, body: dict) -> None:
+    ids = {int(body["entry"])} if body.get("entry") else set()
+    for c in find_cards(cfg, str(body["card"])) if body.get("card") else []:
+        threads.mark_read(STORE, c["key"], None, c["ping_items"])
+        threads.mark_done(STORE, c["key"], None)
+        ids.update(linked_entries(c))
+    for i in ids:
+        e = STORE.one("SELECT status, review FROM entry WHERE id = ?", (i,))
+        if e and e["status"] in ("done", "dismissed"):
+            STORE.update_entry(i, status="open", review="unreviewed" if e["review"] == "rejected" else e["review"])
+
+
 def chat_url(cfg: dict, slug: str):
     for org in cfg.get("orgs", {}).values():
         for c in org.get("chats", []):
@@ -165,9 +220,10 @@ def chat_url(cfg: dict, slug: str):
     return None
 
 
-def run_sync() -> None:
+def run_sync(every_chat: bool = False) -> None:
     with _sync_lock:
-        subprocess.run([sys.executable, os.path.join(hub.ROOT, "hub.py"), "sync", "--all"], cwd=hub.ROOT)
+        cmd = [sys.executable, os.path.join(hub.ROOT, "hub.py"), "sync", "--all"]
+        subprocess.run(cmd + ["--every-chat"] if every_chat else cmd, cwd=hub.ROOT)
         process.ingest(STORE, hub.load_config())
 
 
@@ -176,7 +232,7 @@ def run_sync() -> None:
 
 class Handler(config_ui.Handler):
     def do_GET(self):
-        if self.path in ("/", "/app"):
+        if self.path in ("/", "/app", "/bar"):
             with open(APP_UI, "rb") as f:
                 return self.send(200, f.read(), "text/html")
         if self.path == "/config":
@@ -186,7 +242,55 @@ class Handler(config_ui.Handler):
             return self.send(200, app_state())
         if self.path == "/api/ping":
             return self.send(200, {"ok": True, "app": "messenger-hub"})
+        if self.path.startswith("/media/"):
+            return self.send_media()
         return super().do_GET()
+
+    def send_media(self):
+        """A photo/video saved with a chat export: /media/<chat>/attachments/<file>. Only chats you added."""
+        rel = urllib.parse.unquote(self.path[len("/media/") :].split("?")[0])
+        slug, _, rest = rel.partition("/")
+        if slug not in process.channels(hub.load_config()) or not rest.startswith("attachments/"):
+            return self.send(404, {"error": "not found"})
+        base = os.path.realpath(os.path.join(process.CHATS, slug, "attachments"))
+        path = os.path.realpath(os.path.join(base, rest[len("attachments/") :]))
+        if not path.startswith(base + os.sep) or not os.path.isfile(path):
+            return self.send(404, {"error": "not found"})
+        size = os.path.getsize(path)
+        start, end = 0, size - 1
+        rng = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "")
+        partial = bool(rng and (rng.group(1) or rng.group(2)))
+        if partial:  # videos seek with byte ranges
+            if rng.group(1):
+                start = int(rng.group(1))
+                end = min(int(rng.group(2)), size - 1) if rng.group(2) else size - 1
+            else:
+                start = max(0, size - int(rng.group(2)))
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+        self.send_response(206 if partial else 200)
+        self.send_header("Content-Type", mimetypes.guess_type(path)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "private, max-age=86400")
+        if partial:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        with open(path, "rb") as f:
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = f.read(min(65536, left))
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                except ConnectionError:  # broken pipe, reset or (Windows) aborted
+                    return  # the player stopped reading
+                left -= len(chunk)
 
     def do_POST(self):
         origin = self.headers.get("Origin")
@@ -210,6 +314,13 @@ class Handler(config_ui.Handler):
             elif action == "card-read":
                 for c in find_cards(cfg, None if body.get("all") else str(body["key"])):
                     threads.mark_read(STORE, c["key"], None if body.get("unread") else c["last_ping"], c["ping_items"])
+            elif action == "card-done":
+                for c in find_cards(cfg, str(body["key"])):
+                    threads.mark_done(STORE, c["key"], None if body.get("undo") else c["end"])
+            elif action == "resolve":
+                resolve(cfg, body)
+            elif action == "reopen":
+                reopen(cfg, body)
             elif action == "summarise":
                 card = next(iter(find_cards(cfg, str(body["key"]))), None)
                 if not card:
@@ -223,17 +334,36 @@ class Handler(config_ui.Handler):
                 import webbrowser
 
                 webbrowser.open(url)
+            elif action == "open-link":
+                url = str(body.get("url") or "")
+                if not re.match(r"https?://", url):
+                    raise ValueError("not a web link")
+                import webbrowser
+
+                webbrowser.open(url)
+            elif action == "event":
+                kind = str(body.get("kind") or "")
+                if kind not in ("mentions-open", "mentions-clear", "home-answered"):
+                    raise ValueError("unknown event")
+                threads.log_event(STORE, kind, str(body.get("ref") or "")[:40])
             elif action == "profile":
                 save_profile(body)
                 process.rescan(STORE, hub.load_config())
             elif action == "settings":
                 save_settings(body)
+                WORKER.wake()
             elif action == "process":
                 cfg = hub.load_config()
                 (process.rescan if body.get("rescan") else process.ingest)(STORE, cfg)
             elif action == "sync":
                 if not _sync_lock.locked():
-                    threading.Thread(target=run_sync, daemon=True).start()
+                    WORKER.request_sync(body.get("full") is True)
+            elif action == "sync-stop":
+                WORKER.stop_sync()
+            elif action == "live-resume":
+                WORKER.resume()
+            elif action == "live-audit":
+                WORKER.request_audit()
             elif action == "telegram-token":
                 BOT.set_token(str(body.get("token") or ""))
             elif action == "telegram-unpair":
@@ -247,7 +377,7 @@ class Handler(config_ui.Handler):
                 write_launcher(DESKTOP_FILE)
             elif action == "quit":
                 self.send(200, {"ok": True})
-                threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
+                threading.Thread(target=lambda: (time.sleep(0.3), WORKER.stop(), os._exit(0)), daemon=True).start()
                 return
             else:
                 return self.send(404, {"error": "unknown action"})
@@ -282,7 +412,7 @@ def running(port: int) -> bool:
 
 
 def start_service(port: int):
-    global STORE, BOT
+    global STORE, BOT, WORKER
     import http.server
 
     STORE = Store()
@@ -291,34 +421,56 @@ def start_service(port: int):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     threading.Thread(target=processor_forever, daemon=True).start()
     BOT.start()
+    WORKER = live.Worker(STORE, notice=BOT.notice, plain_sync=run_sync)
+    WORKER.start()
     return server
 
 
 class WindowApi:
-    """Exposed to the page as window.pywebview.api (window modes need the window's own process)."""
+    """Exposed to the page as window.pywebview.api (windows need the window's own process)."""
 
-    def __init__(self):
-        self._window = None  # underscore: pywebview must not walk the window when exposing this object
+    def __init__(self, url: str, title: str = "Messenger Hub"):
+        self._url, self._title = url, title
+        self._window = self._bar = None  # underscore: pywebview must not walk the windows when exposing this object
 
-    def set_mode(self, mode: str):
+    def main_window(self):
         import webview
 
-        w = self._window
-        scr = webview.screens[0] if webview.screens else None
-        sw, sh = (scr.width, scr.height) if scr else (1920, 1080)
-        if mode == "sidebar":
-            w.on_top = True
-            w.resize(430, sh - 80)
-            w.move(sw - 440, 10)
-        elif mode == "widget":
-            w.on_top = True
-            w.resize(380, 330)
-            w.move(sw - 400, sh - 400)
+        self._window = webview.create_window(self._title, self._url, width=1360, height=880, min_size=(340, 280), js_api=self)
+        self._window.events.closed += self._main_closed
+        return self._window
+
+    def _main_closed(self):
+        self._window = None
+
+    def _bar_closed(self):
+        self._bar = None
+
+    def open_bar(self):
+        """The floating bar: a frameless strip on top of everything, instead of the full window."""
+        import webview
+
+        if not self._bar:
+            scr = webview.screens[0] if webview.screens else None
+            x = max(0, ((scr.width if scr else 1920) - BAR_WIDTH) // 2)
+            self._bar = webview.create_window(self._title + " bar", self._url + "bar", width=BAR_WIDTH, height=BAR_SHUT, x=x, y=10, min_size=(BAR_WIDTH, BAR_SHUT),
+                                              frameless=True, easy_drag=False, on_top=True, resizable=False, js_api=self)
+            self._bar.events.closed += self._bar_closed
+        if self._window:
+            self._window.minimize()
+
+    def size_bar(self, opened: bool):
+        if self._bar:
+            self._bar.resize(BAR_WIDTH, BAR_OPEN if opened else BAR_SHUT)
+
+    def close_bar(self):
+        """Back to the full window."""
+        if self._window:
+            self._window.restore()
         else:
-            w.on_top = False
-            w.resize(min(1360, sw - 80), min(880, sh - 80))
-            w.move(max(0, (sw - min(1360, sw - 80)) // 2), 20)
-        return mode
+            self.main_window()
+        if self._bar:
+            self._bar.destroy()
 
 
 def open_window(url: str) -> bool:
@@ -326,8 +478,7 @@ def open_window(url: str) -> bool:
         import webview
     except ImportError:
         return False
-    api = WindowApi()
-    api._window = webview.create_window("Messenger Hub", url, width=1360, height=880, min_size=(340, 280), js_api=api)
+    WindowApi(url).main_window()
     webview.start()
     return True
 

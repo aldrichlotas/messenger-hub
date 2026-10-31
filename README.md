@@ -11,24 +11,50 @@ py -3.10 hub.py app            # opens the app (and starts the hub if it isn't r
 ```
 
 - **Home**: Today (overdue, due today, undated notes), Deadlines (tomorrow, next 7 days, later, with
-  countdowns), and Mentions, so you don't have to backread: one card per conversation that pings you
-  (your name, titles, committees, or a reply to your message). Each card says what kind of ask it is
-  (question, request, FYI…), whether you already handled it (you replied within an hour, or someone else
-  answered), and shows the messages around the ping. What still needs you comes first. Optional: Settings
-  → One-line summaries → Lite has Haiku write a line per open conversation (uses your Claude plan).
-  `py -3.10 hub.py threads --report` checks the conversation split and writes sample cards to
-  `data/reports/mention-cards.md` for someone else to read cold.
+  countdowns), and what in Mentions still needs you.
+- **Mentions**, so you don't have to backread: one row per conversation that pings you (your name, titles,
+  committees, or a reply to your message), grouped into Needs you / Answered / For your information. A row
+  shows who, what kind of ask it is (asks you, wants you to review this, FYI…), the ask in one line, how
+  it was handled (you replied within an hour, or someone else answered), its age and up to 3 photos.
+  Selecting it shows the whole conversation on the right with photos and videos (click for full size) and
+  links as chips naming the site; in a narrow window it opens under its row. An ask that comes with a
+  photo or a Canva/Figma/Drive link is labelled **wants you to review this**. Keys: `j`/`k` move, `Enter`
+  open, `e` mark read, `o` open in Messenger. Optional: Settings → One-line summaries → Lite has Haiku
+  write a line per open conversation (uses your Claude plan).
+  `py -3.10 hub.py threads --report` checks the conversation split, that every saved attachment is on
+  disk, and how long clearing Mentions takes (from the app's event log); it writes sample cards to
+  `data/reports/mention-cards.md` for someone else to read cold. [docs/five-second-test.md](docs/five-second-test.md)
+  is a short test to run with an org-mate.
 - **Review**: dates, meetings and requests the rules found in your chats. Accept what's yours.
 - **Wins**: your achievements log, for LinkedIn later.
 - **Settings**: your names, your notes-to-self chat, your title, committees and the people above
   you in each org; the Telegram bot; brief times, quiet hours and the alert cap; start with Windows;
   a desktop shortcut.
-- **Window modes** (top right): full window, a sidebar docked to the right, or a small widget, both
-  always on top. Closing the window keeps the hub running for briefs; "Quit hub" in Settings stops it.
+- **Floating bar** (Float, top right): a slim strip on top of your other windows with the sync status and your next thing. Done works from it, and it opens to the rest of Do now. Top-right arrow goes back to the full hub. 
+  Closing the window keeps the hub running for briefs; "Quit hub" in Settings stops it.
 
 All of this is **local and uses no Claude tokens**: rules in [hubos/rules.py](hubos/rules.py) find
 dates ("bukas 7pm", "sa Biyernes", "Oct 30"), mentions and requests ("pubmat", "pa-approve").
 Claude is only used by `analyze` / `/digest` below.
+
+**Live sync** (Settings, off by default): while the hub runs, new messages reach their cards without
+pressing Sync. The hub's browser stays open, minimised, and reads your chat list every few seconds
+without opening a chat. It opens a chat when its row changes, and looks through every chat once every
+3 hours in case the list missed one. Community chats may only be caught by that slow pass. Nothing
+opens past the daily limit (300 chats); quiet hours only silence Telegram. A login, PIN or checkpoint page pauses it
+until you press Resume, and it tells you in the app and on Telegram. While it's on, use the app's Sync
+button rather than `hub.py sync`, which can't run while live sync holds the browser. `py -3.10 hub.py live`
+reports the delay, chats opened per day and any checkpoints; `hub.py live --audit` compares the last
+24 hours against a separate full read.
+
+**Refreshing your chat list** (config page): reads your Messenger chat list and stops once it reaches
+chats quiet for over a year. Tick *Find all chats* (or `hub.py discover --all-chats`) to go on to the
+very end. *Stop* ends a refresh early and keeps what it found. A refresh only ever adds: chats found earlier stay on the list. It can't run while live
+sync is on, because both need the same browser.
+
+**How Sync stays quick:** it reads your chat list first and opens only chats whose row changed. Every
+chat still gets opened at least once a day, in case the list didn't show a change. Press *Sync* again while it runs (it reads *Stop sync*) to stop: a chat being read for the first time keeps what it has, a chat already synced is read again next time, and chats not reached wait for the next sync. The same goes for a chat that runs out of time, so a sync never leaves a gap in its history. Your notes-to-self chat's first sync reads back 30 days, not to the start of the chat. *Full sync* in
+Settings (or `hub.py sync --all --every-chat`) opens every chat right away.
 
 **Capturing things:** type in the box at the top of the app, send any text to the Telegram bot, or
 message yourself on Messenger as you already do (pick that chat in Settings; it syncs with the
@@ -113,6 +139,7 @@ Messenger PIN if it asks to restore encrypted history). The session is kept in `
 py -3.10 hub.py run ecg             # sync ECG's chats, then update data/orgs/ecg/
 py -3.10 hub.py run --all          # sync and analyse every org
 py -3.10 hub.py status              # what's synced and what hasn't been analysed yet
+py -3.10 hub.py vault               # rebuild the Obsidian notes in Hub/ (no tokens, no browser); keep your own notes outside Hub/
 ```
 
 - **sync** scrolls each enabled chat back only to the last message it already has, appends the new ones

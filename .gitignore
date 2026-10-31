@@ -6,3 +6,5 @@ STOP
 __pycache__/
 *.pyc
 .env
+
+graphify-out/

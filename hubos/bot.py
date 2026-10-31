@@ -45,27 +45,42 @@ def when_label(e: dict, now: dt.datetime) -> str:
     return f"{day} {_clock(d)}" if e.get("due_has_time") else day
 
 
-def safe_title(e: dict, names: list, n: int = 60) -> str:
-    """A title fit for Telegram: no links, emails, phone numbers or other people's @mentions."""
+TLD = r"(?:com|org|net|edu|gov|ph|io|co|me|ly|gle|gl|to|app|site|xyz)"
+
+
+def people(st: Store, names: list) -> list:
+    """Name words of everyone else in the synced chats, for safe_title (Messenger mentions often have no @)."""
+    mine = {w.lower() for x in names for w in x.split()}
+    words = {w for r in st.q("SELECT DISTINCT author FROM item WHERE is_me = 0 AND author IS NOT NULL")
+             for w in re.findall(r"[^\W\d_][\w'-]*", r["author"]) if w[0].isupper() and w.lower() not in mine}
+    return sorted(words, key=len, reverse=True)
+
+
+def safe_title(e: dict, names: list, n: int = 60, others=()) -> str:
+    """A title fit for Telegram: no links, emails, phone numbers, other people's @mentions or names in `others`."""
     t = e.get("title") or ""
     t = re.sub(r"https?://\S+|\[link\]", "", t)
     t = re.sub(r"[\w.+-]+@[\w-]+\.[\w.]+", "", t)
-    t = re.sub(r"(\+?\d[\d\s-]{7,}\d)", "", t)
-    mine = {x.lower() for x in names}
-    t = re.sub(r"@([\w.]+(?:\s[A-Z][\w.]*)?)", lambda m: m.group(0) if m.group(1).lower() in mine else "@…", t)
-    t = re.sub(r"\s+", " ", t).strip(" -·,")
+    t = re.sub(rf"\bwww\.\S+|\b[\w-]+(?:\.[\w-]+)+/\S*|\b[\w-]+(?:\.[\w-]+)*\.{TLD}\b", "", t)  # links without https://
+    t = re.sub(r"(\+?\d[\d\s.-]{7,}\d)", "", t)
+    mine = {x.split()[0].lower() for x in names if x.strip()}
+    t = re.sub(r"@([^\W\d_][\w.]*(?:\s[A-ZÀ-ÖØ-Þ][\w.]*)*)", lambda m: m.group(0) if m.group(1).split()[0].lower() in mine else "@…", t)
+    if others:
+        t = re.sub(r"(?<![@\w])(?:%s)\b" % "|".join(map(re.escape, others)), "…", t)
+        t = re.sub(r"…(?:\s+…)+", "…", t)  # "Sam Reyes" -> one …
+    t = re.sub(r"\s+", " ", t).strip(" -·,:")
     return t if len(t) <= n else t[: n - 1].rstrip() + "…"
 
 
 KIND = {"deadline": "deadline", "meeting": "meeting", "task": "task", "capture": "note", "win": "win"}
 
 
-def line(e: dict, now: dt.datetime, detail: str, names: list) -> str:
+def line(e: dict, now: dt.datetime, detail: str, names: list, others=()) -> str:
     org = (e.get("org") or "personal").upper()
     head = f"#{e['id']} {org} · {KIND.get(e['kind'], e['kind'])} · {when_label(e, now)}"
     if detail == "minimal" and e.get("origin") == "rule":
         return head
-    title = safe_title(e, names)
+    title = safe_title(e, names, others=others)
     return f"{head}\n   {title}" if title else head
 
 
@@ -195,6 +210,7 @@ class Bot:
             return  # someone else found the bot: ignore
         now = dt.datetime.now()
         names = settings.profile(cfg)["names"]
+        others = people(self.st, names)
         detail = settings.get(cfg)["detail"]
         cmd, _, rest = text.partition(" ")
         cmd = cmd.lower().split("@")[0]
@@ -205,7 +221,7 @@ class Bot:
         elif cmd == "/due":
             d = process.dashboard(self.st, now, cfg)
             items = d["overdue"] + d["deadlines"]
-            self.send("\n".join(line(e, now, detail, names) for e in items[:12]) or "No upcoming deadlines.")
+            self.send("\n".join(line(e, now, detail, names, others) for e in items[:12]) or "No upcoming deadlines.")
         elif cmd == "/review":
             d = process.dashboard(self.st, now, cfg)
             self.send(f"{d['review_count']} suggestions and {d['unread_mentions']} conversations that mention you wait on your laptop.")
@@ -216,18 +232,18 @@ class Bot:
                 self.send("Which one? e.g. /done 12 (numbers are shown in /today and /due).")
             else:
                 self.st.update_entry(e["id"], status="done", review="accepted")
-                self.send(f"Done: #{e['id']} {safe_title(e, names)}")
+                self.send(f"Done: #{e['id']} {safe_title(e, names, others=others)}")
         elif cmd == "/win":
             if not rest.strip():
                 self.send("Tell me what you did: /win led the GA pubmats, 14 posts #ecg")
                 return
             e = process.capture(self.st, "/win " + rest, "telegram-bot", cfg)
-            self.send(f"Win logged: {safe_title(e, names, 80)}")
+            self.send(f"Win logged: {safe_title(e, names, 80, others)}")
         elif cmd.startswith("/"):
             self.send(HELP)
         else:
             e = process.capture(self.st, text, "telegram-bot", cfg)
-            self.send(f"Saved #{e['id']}: {safe_title(e, names, 80)} · {when_label(e, now)}")
+            self.send(f"Saved #{e['id']}: {safe_title(e, names, 80, others)} · {when_label(e, now)}")
 
     # scheduler
     def tick(self, now: dt.datetime = None) -> list:
@@ -261,6 +277,18 @@ class Bot:
                     sent.append(key)
         return sent
 
+    def notice(self, text: str, now: dt.datetime = None) -> bool:
+        """A fixed hub message (no chat content) under the same rules as alerts: off, quiet hours, daily cap.
+        False means it wasn't delivered, so the caller can try again later."""
+        now = now or dt.datetime.now()
+        sset = settings.get(self.get_cfg())
+        if not sset["alerts"] or in_quiet(now, sset["quiet"]) or self.st.sent_today("alert:") >= int(sset["ping_cap"]):
+            return False
+        if not self.send(text):
+            return False
+        self.st.mark_sent(f"alert:notice:{now.isoformat()}")
+        return True
+
     def schedule_forever(self):
         while not self._stop.is_set():
             try:
@@ -287,6 +315,7 @@ def in_quiet(now: dt.datetime, quiet: dict) -> bool:
 def due_alerts(st: Store, cfg: dict, now: dt.datetime) -> list:
     """(sent-key, text) for alerts that are due now: meetings in 30 min, things due within 2 h / 24 h."""
     names = settings.profile(cfg)["names"]
+    others = people(st, names)
     detail = settings.get(cfg)["detail"]
     soon = (now + dt.timedelta(hours=24)).isoformat(timespec="minutes")
     out = []
@@ -302,15 +331,16 @@ def due_alerts(st: Store, cfg: dict, now: dt.datetime) -> list:
         else:
             continue
         if not st.was_sent(key):
-            out.append((key, line(e, now, detail, names)))
+            out.append((key, line(e, now, detail, names, others)))
     return out
 
 
 def compose_brief(st: Store, cfg: dict, name: str, now: dt.datetime) -> str:
     names = settings.profile(cfg)["names"]
+    others = people(st, names)
     detail = settings.get(cfg)["detail"]
     d = process.dashboard(st, now, cfg)
-    fmt = lambda es: [line(e, now, detail, names) for e in es]  # noqa: E731
+    fmt = lambda es: [line(e, now, detail, names, others) for e in es]  # noqa: E731
     later_today = [e for e in d["today"] if e["due"] >= now.isoformat(timespec="minutes") or not e["due_has_time"]]
     parts = []
     if name in ("morning", "today"):

@@ -21,6 +21,8 @@ DEFAULTS = {
     "detail": "short",  # what Telegram may show: "short" (cleaned titles) or "minimal" (org, type and time only)
     "process_minutes": 5,  # how often the app re-reads synced chats (no tokens)
     "summaries": "off",  # "lite": Haiku writes one line per conversation that still needs you (uses your Claude plan)
+    "live": False,  # watch the chat list while the hub runs and fetch chats as they change (hubos/live.py)
+    "live_limit": 300,  # chats live sync may open by itself per day; your Sync button doesn't count
 }
 
 

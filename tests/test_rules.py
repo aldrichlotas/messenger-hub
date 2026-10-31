@@ -80,7 +80,55 @@ class Mentions(unittest.TestCase):
     def test_word_boundaries(self):
         self.assertEqual(rules.mention("Aldrichhh lol", "ecg", PROF)[0], 0)
         self.assertEqual(rules.mention("Media team", "ecg", PROF)[0], 2)
-        self.assertEqual(rules.mention("social media post", "ecg", PROF)[0], 2)
+        self.assertEqual(rules.mention("social media post", "ecg", PROF)[0], 1)  # matched, but in passing
+
+
+class OrgTraffic(unittest.TestCase):
+    """ECG-style messages (made-up) that flooded Needs you before these rules."""
+
+    def test_role_tags_are_not_your_committee(self):
+        for t in ('[MEDIA Direk] Ysa voted for "I\'ve filled up the tracker." in the poll.', "[MEDIA VD] Ley",
+                  "hello po @[MEDIA Direk] Ysa @[MEDIA VD] Ley pacheck"):
+            self.assertEqual(rules.mention(t, "ecg", PROF)[0], 0, t)
+        self.assertEqual(rules.mention("pubpro: [EB DCCO] [HR Direk] Zee", "ecg", PROF)[0], 3, "a slot for your title still counts")
+
+    def test_committee_named_in_passing(self):
+        for t in ("OCT 13 – INTERVIEWS 📍 Academics (2nd: SS, 3rd: Media)", "GA tasks: 1. Project Management 2. IMC: Creatives",
+                  "Hello, @everyone! upload your photos so the Creatives team can proceed", "di na nag interview Linkages, nanood na lang"):
+            self.assertEqual(rules.mention(t, "ecg", PROF)[0], 1, t)
+
+    def test_committee_addressed(self):
+        for t in ("Creatives: who can make the GA pubmat?", "@Media pa-cover", "hello po Creatives! pa-review",
+                  "Hi Docu and Media, kindly upload", "Good morning, Linkages! bump"):
+            self.assertEqual(rules.mention(t, "ecg", PROF)[0], 2, t)
+
+
+class Namesakes(unittest.TestCase):
+    """Someone else with your first name (made-up: "Aldrich Sy")."""
+
+    prof = rules.Profile(names=["Aldrich", "Aldrich Lotas"], not_me=["Aldrich Sy"])
+
+    def test_namesake_is_not_you(self):
+        for t in ("boss @Aldrich Sy pls sign the PPR", "Magkano cut mo @ALDRICH SY"):
+            self.assertEqual(rules.mention(t, None, self.prof)[0], 0, t)
+
+    def test_you_are_still_you(self):
+        for t in ("@Aldrich Lotas pacheck", "hi Aldrich, can you sign", "@Aldrich Sy and @Aldrich pacheck"):
+            self.assertEqual(rules.mention(t, None, self.prof)[0], 3, t)
+
+
+class AfterWords(unittest.TestCase):
+    def test_finished(self):
+        for t in ("I've updated the bingo cards na", "Hi! I've moved the template to the canva design na", "done na", "sent na po"):
+            self.assertTrue(rules.DONE_NOW.search(t), t)
+        for t in ("I'll do it right now", "not done yet", "have you updated it", "done setting up"):
+            self.assertFalse(rules.DONE_NOW.search(t), t)
+
+    def test_someone_took_it(self):
+        for t in ("Will be working on this as soon as I get home", "ako na po", "I'll post it tonight", "i got this"):
+            self.assertTrue(rules.TOOK_IT.search(t), t)
+        for t in ("thank you!", "noted", "can someone do this"):
+            self.assertFalse(rules.TOOK_IT.search(t), t)
 
 
 class Analyse(unittest.TestCase):
@@ -138,6 +186,47 @@ class Capture(unittest.TestCase):
         self.assertEqual(c["kind"], "win")
         self.assertIsNone(c["due"])
         self.assertEqual(c["tags"], ["ecg"])
+
+
+class AfterReply(unittest.TestCase):
+    def test_later(self):
+        for t in ("Hol up", "hold up lemme check", "I'll discuss abt it when I get wifi", "teka", "mamaya ko gawin",
+                  "I haven't told them abt that", "not yet", "brb"):
+            self.assertTrue(rules.LATER.search(t), t)
+        for t in ("done setting up", "Tom said hi", "Next week Monday", "G", "check the docs", "u havent seen the animation yet lol"):
+            self.assertFalse(rules.LATER.search(t), t)
+
+    def test_waiting(self):
+        for t in ("actually imma just wait until ur available to call tom", "waiting for you", "call me when u're free"):
+            self.assertTrue(rules.WAITING.search(t), t)
+        for t in ("waiting for the bus", "can't wait", "omw home"):
+            self.assertFalse(rules.WAITING.search(t), t)
+
+    def test_question_start(self):
+        for t in ("Does Enzo know about the game", "is it open", "Should we add trophies"):
+            self.assertTrue(rules.QUESTION_START.match(t), t)
+        for t in ("doesn't matter", "this is it", "Do it"):
+            self.assertFalse(rules.QUESTION_START.match(t), t)
+
+
+class RoleTags(unittest.TestCase):
+    def test_a_poll_vote_gives_the_role_and_nickname(self):
+        self.assertEqual(rules.role_tag('[HR VD] Pisha voted for "2:00" in the poll. View poll'), ("HR VD", "Pisha"))
+        self.assertEqual(rules.role_tag('[HR VD] Pisha removed their vote for "2:00" in the poll.'), ("HR VD", "Pisha"))
+
+    def test_a_tag_anywhere_else_is_not_the_senders_role(self):
+        for t in ("[ANNOUNCEMENT] Hello everyone", "hello po @[PROMAN VD] Antoi here na", "[HR VD] Pisha · Pinned", "", None):
+            self.assertIsNone(rules.role_tag(t), t)
+
+
+class Decisions(unittest.TestCase):
+    def test_settled_things(self):
+        for t in ("We decided to move the GA", "The USG EB has officially approved the extension", "final decision: venue is Henry Sy", "Go signal na from Sam"):
+            self.assertTrue(rules.decision(t), t)
+
+    def test_not_settled(self):
+        for t in ("have we decided to move it?", "pending approval", "let's decide tomorrow", "", None):
+            self.assertFalse(rules.decision(t), t)
 
 
 if __name__ == "__main__":

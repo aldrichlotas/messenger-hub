@@ -210,12 +210,50 @@ REQUEST = re.compile(
     r"|post|posting|upload|pa-?post|teasers?|reels?|banners?|cover photo|deck|ppt|slides|forms?|pa-?send|send|pa-?gawa|gawa)\b",
     re.I,
 )
+# After you replied to a mention: you put it off ("hol up", "I'll discuss it when I get wifi"), so you owe a follow-up.
+LATER = re.compile(
+    r"\b(teka|wait lang|hol(?:d)? up|later|mamaya|bukas|tomorrow|tmrw|when i get|once i get|after (?:this|i)"
+    r"|i'?ll (?:discuss|check|do|send|tell|look|ask|update|fix|try)|not yet|i (?:haven'?t|have not)|di pa|hindi pa|brb)\b",
+    re.I,
+)
+# ...or they said they're waiting on you ("imma just wait until ur available").
+# You finished what you said you'd get to: "I've updated the cards na", "done na", "sent na".
+DONE_NOW = re.compile(
+    r"\b(?:i'?ve|i have|i just) (?:\w+ )?(?:updated|added|sent|moved|finished|uploaded|fixed|changed|posted|submitted|done)\b"
+    r"|\b(?:done|tapos|sent|updated|posted|uploaded|submitted)(?: \w+)? na\b",
+    re.I,
+)
+
+# Someone else took on what was asked of the committee: "Will be working on this", "ako na".
+TOOK_IT = re.compile(
+    r"\b(?:i'?ll|i will|will|we'?ll|i can) (?:be )?(?:work(?:ing)?|do|doing|post|posting|make|making|send|revise|start|take|handle|finish)\b"
+    r"|\b(?:i'?m|am) (?:on it|working on)\b|\bako na\b|\bi got (?:this|it)\b",
+    re.I,
+)
+
+WAITING = re.compile(
+    r"\b(?:wait(?:ing)? (?:for|until|till|til) (?:u|you|ur|your)|when (?:u|you|ur|u'?re|you'?re) (?:free|available|back|home|online)"
+    r"|until (?:u|you|ur|u'?re|you'?re) (?:free|available)|pag free ka|hintayin (?:kita|ka))\b",
+    re.I,
+)
+# A question without a question mark, by how it starts ("Does Enzo know about the game").
+QUESTION_START = re.compile(r"^\W*(does|did|is|are|was|were|should|would|will|has|may)\b", re.I)
 PLACE = re.compile(r"(zoom\.us|meet\.google|teams\.microsoft|\b(room|venue|hall|gk|velasco|henry sy|andrew|lobby|via zoom|online)\b)", re.I)
 MY_COMMIT = re.compile(
     r"\b(i'?ll|i will|i can|will do|on it|ako na|ako bahala|ako nalang|ako na lang|gagawin ko|gawin ko|i got it|sige ako|noted,? i)\b",
     re.I,
 )
 BROADCAST = re.compile(r"(@everyone|@all\b|\beveryone\b|\ball eb\b|\ball officers\b|\bguys\b)", re.I)
+# Someone's display tag, "[MEDIA Direk] Ysa" or "@[CREA VD] Daphne": the committee in it is theirs, not a call to yours.
+# A tag not followed by a name ("[EB DCCO] [HR Direk] Zee", a schedule slot) still counts.
+ROLE_TAG = re.compile(r"@?\[[^\]\n]{1,30}\](?=\s*@?[A-Z])")
+# What comes before a committee's name when the message is addressed to it: nothing (it opens the message),
+# an @, or a greeting ("hello po Creatives", "Hi Media and Docu"). Matched against the text before the name.
+CALLED = re.compile(
+    r"(?:^[\W_]*|@\s*|\b(?:hi+|hello+|hey+|helo+|haloo*|calling|paging|attention|good (?:morning|afternoon|evening|day))"
+    r"\W+(?:(?:po|ate|kuya|all|our|dear|to|the|and|&|\w+ (?:and|&))\W+){0,3}@?)$",
+    re.I,
+)
 
 
 # --- mentions -----------------------------------------------------------------------------------
@@ -229,6 +267,7 @@ class Profile:
     titles: dict = field(default_factory=dict)  # org -> ["DCCO", "Deputy CCO"...]
     committees: dict = field(default_factory=dict)  # org -> ["Creatives", "Publicity"...]
     above: dict = field(default_factory=dict)  # org -> ["Sam", "Isabelle Reyes", "Ystiphen"...]
+    not_me: list = field(default_factory=list)  # other people who share your name: "Aldrich Ty"
 
 
 def _words_rx(words: list):
@@ -242,11 +281,14 @@ def mention(text: str, org, prof: Profile):
     """(strength, reason) for how strongly a message is about you, or (0, "")."""
     if not text:
         return 0, ""
+    other = _words_rx(prof.not_me)
+    text = other.sub(" ", text) if other else text
     rx = _words_rx(prof.names)
     if rx:
         m = rx.search(text)
         if m:
             return 3, f"names you ({m.group(1)})"
+    text = ROLE_TAG.sub(" ", text)
     titles = prof.titles.get(org, []) if org else [t for v in prof.titles.values() for t in v]
     rx = _words_rx(titles)
     if rx:
@@ -256,9 +298,12 @@ def mention(text: str, org, prof: Profile):
     comms = prof.committees.get(org, []) if org else []
     rx = _words_rx(comms)
     if rx:
-        m = rx.search(text)
+        hits = list(rx.finditer(text))
+        m = next((h for h in hits if CALLED.search(text[: h.start()])), None)
         if m:
             return 2, f"your committee ({m.group(1)})"
+        if hits:  # named in passing: a schedule, a list of committees, "so Creatives can proceed"
+            return 1, f"mentions your committee ({hits[0].group(1)})"
     if BROADCAST.search(text):
         return 1, "everyone"
     return 0, ""
@@ -359,3 +404,22 @@ def capture(text: str, ts: dt.datetime, orgs=None):
         "has_time": bool(hit and hit.has_time),
         "tags": tags,
     }
+
+
+VOTE_TAG = re.compile(r"^\[([^\]\n]{2,24})\]\s+(\S+)\s+(?:voted for|removed their vote)")
+DECISION = re.compile(
+    r"\b(final decision|we decided|decided to|napagdesisyunan|we'?ll go with|we will go with|go signal|officially approved|has approved)\b",
+    re.I,
+)
+
+
+def role_tag(text: str):
+    """(role, nickname) from a poll vote, where Messenger shows the sender's own nickname: '[HR VD] Pisha voted for ...'."""
+    m = VOTE_TAG.match(text or "")
+    return (m.group(1).strip(), m.group(2)) if m else None
+
+
+def decision(text: str) -> bool:
+    """Reads like something was settled. A cue word only, so it's a lead rather than a fact."""
+    t = (text or "").strip()
+    return bool(DECISION.search(t)) and not t.endswith("?")
