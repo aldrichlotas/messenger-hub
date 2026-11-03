@@ -71,7 +71,7 @@ class BotTests(unittest.TestCase):
         e = {"id": 1, "kind": "task", "org": "ecg", "origin": "rule", "due": None, "due_has_time": 0,
              "title": "@Patricia Reyes send to sam@example.edu.ph 09171234567 https://x.co/a and @Aldrich"}
         out = botmod.line(e, NOW, "short", ["Aldrich"])
-        for bad in ("Patricia", "dlsu.edu", "0917", "https"):
+        for bad in ("Patricia", "example.edu", "0917", "https"):
             self.assertNotIn(bad, out)
         self.assertIn("@Aldrich", out)
         self.assertNotIn("send", botmod.line(e, NOW, "minimal", ["Aldrich"]))
@@ -91,7 +91,7 @@ class BotTests(unittest.TestCase):
             "register www.ecg-dlsu.org/ga or ecg.org.ph": ["ecg-dlsu", "ecg.org"],
             "DM fb.me/someone or m.me/someone": ["fb.me", "m.me", "someone"],
             "call 0917.123.4567, 0917 123 4567 or +63 917-123-4567": ["0917", "917", "4567"],
-            "email pubs@example.org the layout": ["pubs", "ecg.org"],
+            "email pubs@example.org the layout": ["pubs", "example.org"],
         }
         for title, bad in cases.items():
             e = {"id": 1, "kind": "task", "org": "imes", "origin": "rule", "due": None, "due_has_time": 0, "title": title}
